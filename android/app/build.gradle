@@ -1,10 +1,48 @@
 plugins { id 'com.android.application' }
+
+// Release signing comes from environment variables (CI secrets or a local shell).
+// Nothing secret is stored in this repository.
+def keystorePath = System.getenv('FRAMEWISE_KEYSTORE_FILE')
+def releaseSigningAvailable = keystorePath != null && !keystorePath.isEmpty() && file(keystorePath).exists()
+
 android {
     namespace 'app.framewise'
     compileSdk 35
-    defaultConfig { applicationId 'app.framewise'; minSdk 29; targetSdk 35; versionCode 2; versionName '0.2.0' }
+    defaultConfig {
+        applicationId 'app.framewise'
+        minSdk 29
+        targetSdk 35
+        versionCode 3
+        versionName '0.3.0'
+        // GitHub repository whose Releases feed the in-app updater.
+        buildConfigField 'String', 'UPDATE_REPO', '"trustbendover/Framewise"'
+    }
+    buildFeatures { buildConfig true }
+    testOptions { unitTests.returnDefaultValues = true }
     sourceSets { main { assets.srcDirs = ['../../public'] } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
-    buildTypes { debug { debuggable true }; release { minifyEnabled false } }
+    signingConfigs {
+        release {
+            if (releaseSigningAvailable) {
+                storeFile file(keystorePath)
+                storePassword System.getenv('FRAMEWISE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('FRAMEWISE_KEY_ALIAS')
+                keyPassword System.getenv('FRAMEWISE_KEY_PASSWORD')
+                enableV1Signing false
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
+    }
+    buildTypes {
+        debug { debuggable true }
+        release {
+            minifyEnabled false
+            if (releaseSigningAvailable) signingConfig signingConfigs.release
+        }
+    }
 }
-dependencies { implementation 'androidx.exifinterface:exifinterface:1.4.2' }
+dependencies {
+    implementation 'androidx.exifinterface:exifinterface:1.4.2'
+    testImplementation 'junit:junit:4.13.2'
+}

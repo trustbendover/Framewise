@@ -97,9 +97,9 @@ test('An AI response from a previous capture source cannot render', async () => 
   assert.equal(h.node('suggestButton').disabled, false);
 });
 
-test('A source hidden while AI is running cannot render a live reading', async () => {
+test('A live video source hidden while AI is running cannot render a live reading', async () => {
   const h = harness(); let resolve;
-  h.state.source = 'sony';
+  h.state.source = 'video';
   h.env.requestAnalysis = () => new Promise(done => { resolve = done; });
   h.run(runAI);
   const pending = h.env.runAI();
@@ -107,6 +107,18 @@ test('A source hidden while AI is running cannot render a live reading', async (
   resolve({ summary: 'Hidden source.', observations: [], limitations: [] });
   await pending;
   assert.equal(h.env.renders, 0);
+});
+
+test('A kept Sony frame still renders when Sony is hidden behind Framewise', async () => {
+  const h = harness(); let resolve;
+  h.state.source = 'sony';
+  h.env.requestAnalysis = () => new Promise(done => { resolve = done; });
+  h.run(runAI);
+  const pending = h.env.runAI();
+  h.state.visible = false;
+  resolve({ summary: 'Kept Sony frame.', observations: [], limitations: [] });
+  await pending;
+  assert.equal(h.env.renders, 1);
 });
 
 test('A manual AI result scrolls into view while periodic results do not jump', async () => {

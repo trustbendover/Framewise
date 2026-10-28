@@ -10,10 +10,16 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import androidx.exifinterface.media.ExifInterface;
+import android.media.projection.MediaProjectionConfig;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.provider.Settings;
+import android.content.res.Configuration;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -57,6 +63,11 @@ public final class MainActivity extends Activity {
     private AiClient aiClient;
     private boolean requestingCapture;
     private boolean requestingPhoto;
+    private boolean singleAppRequested;
+    private boolean openSonyAfterShare;
+    private boolean resumed;
+    private UpdateManager updates;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService photoExecutor = Executors.newSingleThreadExecutor();
 
     // JavaScript is required by the bundled UI. All WebView network resources and
@@ -132,6 +143,32 @@ public final class MainActivity extends Activity {
                 & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         }
         webView.loadUrl("https://" + APP_HOST + "/assets/index.html");
+        updates = new UpdateManager(this);
+        UpdateManager.setListener(status -> publishScript("if(typeof window.onUpdateStatus==='function'){window.onUpdateStatus("
+            + JSONObject.quote(status.toString()) + ");}"));
+        updates.checkOnLaunch();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        resumed = true;
+        CaptureState.hostResumed(isInMultiWindowMode());
+        if (updates != null) updates.onHostResumed(this);
+    }
+
+    @Override protected void onPause() {
+        resumed = false;
+        CaptureState.hostPaused();
+        super.onPause();
+    }
+
+    @Override public void onMultiWindowModeChanged(boolean isInMultiWindowMode, Configuration newConfig) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig);
+        CaptureState.hostMultiWindow(isInMultiWindowMode);
+    }
+
+    private void publishScript(String script) {
+        runOnUiThread(() -> { if (webView != null && !isDestroyed()) webView.evaluateJavascript(script, null); });
     }
 
     private static WebResourceResponse blockedResponse(int code, String reason) {
@@ -147,6 +184,7 @@ public final class MainActivity extends Activity {
     private void requestCapture() {
         if (requestingCapture || CaptureState.isCapturing()) return;
         requestingCapture = true;
+        CaptureState.requesting("Step 1 of 4: checking notification permission (Android shows a sharing notification)…");
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
@@ -155,7 +193,17 @@ public final class MainActivity extends Activity {
 
     private void launchCaptureConsent() {
         MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
-        try { startActivityForResult(manager.createScreenCaptureIntent(), CAPTURE_REQUEST); }
+        Intent consent;
+        if (Build.VERSION.SDK_INT >= 34 && !singleAppRequested) {
+            // Entire screen: Imaging Edge closes its screens whenever Android's app picker relaunches it,
+            // so the reliable route is to share the whole display and let Framewise open Sony directly.
+            consent = manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay());
+            CaptureState.requesting("Step 2 of 4: in Android's prompt tap “Start” to share the entire screen. Framewise then opens Imaging Edge.");
+        } else {
+            consent = manager.createScreenCaptureIntent();
+            CaptureState.requesting("Step 2 of 4: in Android's prompt choose “A single app” → Imaging Edge, or “Entire screen”.");
+        }
+        try { startActivityForResult(consent, CAPTURE_REQUEST); }
         catch (RuntimeException error) {
             requestingCapture = false;
             CaptureState.stopped("Android could not open screen sharing. Try again.");
@@ -187,22 +235,61 @@ public final class MainActivity extends Activity {
         if (requestCode != CAPTURE_REQUEST) return;
         requestingCapture = false;
         if (resultCode != RESULT_OK || data == null) {
-            CaptureState.stopped("Screen sharing was cancelled. No camera preview was captured.");
+            CaptureState.stopped("Screen sharing was cancelled in Android's prompt. No camera preview was captured.");
             return;
         }
+        CaptureState.starting("Step 3 of 4: permission granted, starting the sharing service…");
         Intent service = new Intent(this, CaptureService.class)
             .setAction(CaptureService.ACTION_START)
             .putExtra("resultCode", resultCode)
             .putExtra("resultData", data);
-        try { startForegroundService(service); }
-        catch (RuntimeException error) {
-            CaptureState.stopped("Android could not start screen sharing. Keep Framewise open and try again.");
+        try {
+            startForegroundService(service);
+            if (openSonyAfterShare) waitThenOpenSony(SystemClock.elapsedRealtime());
+        } catch (RuntimeException error) {
+            boolean background = Build.VERSION.SDK_INT >= 31 && error instanceof android.app.ForegroundServiceStartNotAllowedException;
+            CaptureState.stopped(background
+                ? "Android blocked screen sharing because Framewise was not in the foreground. Keep Framewise open while you accept the prompt."
+                : "Android could not start screen sharing (" + error.getClass().getSimpleName() + "). Keep Framewise open and try again.");
         }
+    }
+
+    /** After an entire-screen share starts while Framewise is visible, bring Imaging Edge forward directly. */
+    private void waitThenOpenSony(long since) {
+        mainHandler.postDelayed(() -> {
+            if (isDestroyed()) return;
+            if ("capturing".equals(captureStateName())) {
+                if (resumed) launchSony(true);
+                return;
+            }
+            if (CaptureState.isCapturing() && SystemClock.elapsedRealtime() - since < 6000) waitThenOpenSony(since);
+        }, 300);
+    }
+
+    private static String captureStateName() {
+        try { return new JSONObject(CaptureState.json()).optString("state"); } catch (JSONException e) { return ""; }
+    }
+
+    private void launchSony(boolean fromShare) {
+        Intent sony = getPackageManager().getLaunchIntentForPackage(CaptureService.SONY_PACKAGE);
+        if (sony != null) {
+            sony.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                startActivity(sony);
+                if (fromShare) CaptureState.step("Sharing is on and Imaging Edge is open. Connect the camera and start remote shooting, then return with the Framewise button or notification.");
+                return;
+            } catch (android.content.ActivityNotFoundException ignored) { }
+        }
+        if (fromShare) CaptureState.step("Sharing is on, but Imaging Edge Mobile is not installed.");
+        openExternal(Uri.parse("https://support.d-imaging.sony.co.jp/app/iemobile/en/"));
     }
 
     @Override protected void onDestroy() {
         photoExecutor.shutdownNow();
         if (aiClient != null) { aiClient.close(); aiClient = null; }
+        UpdateManager.setListener(null);
+        if (updates != null) { updates.close(); updates = null; }
+        mainHandler.removeCallbacksAndMessages(null);
         if (webView != null) {
             webView.removeJavascriptInterface("Android");
             webView.destroy();
@@ -218,7 +305,36 @@ public final class MainActivity extends Activity {
     }
 
     final class NativeBridge {
-        @JavascriptInterface public void startCapture() { runOnUiThread(MainActivity.this::requestCapture); }
+        @JavascriptInterface public void startCapture() { startCaptureMode("screen"); }
+
+        /** mode "screen" (recommended, entire screen then Framewise opens Sony) or "app" (Android's single-app picker). */
+        @JavascriptInterface public void startCaptureMode(String mode) {
+            runOnUiThread(() -> {
+                singleAppRequested = "app".equals(mode);
+                openSonyAfterShare = !singleAppRequested;
+                requestCapture();
+            });
+        }
+
+        @JavascriptInterface public boolean overlayAllowed() { return Settings.canDrawOverlays(MainActivity.this); }
+
+        @JavascriptInterface public void requestOverlay() {
+            runOnUiThread(() -> {
+                try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()))); }
+                catch (RuntimeException ignored) { }
+            });
+        }
+
+        @JavascriptInterface public void checkForUpdates() { if (updates != null) updates.check(true); }
+
+        @JavascriptInterface public void installUpdate() { runOnUiThread(() -> { if (updates != null) updates.downloadAndInstall(MainActivity.this); }); }
+
+        @JavascriptInterface public String getUpdateStatus() { return UpdateManager.lastStatusJson(); }
+
+        @JavascriptInterface public void openUrl(String url) {
+            if (url == null || !url.startsWith("https://github.com/" + BuildConfig.UPDATE_REPO + "/")) return;
+            runOnUiThread(() -> openExternal(Uri.parse(url)));
+        }
 
         @JavascriptInterface public void stopCapture() {
             runOnUiThread(() -> {
@@ -227,16 +343,7 @@ public final class MainActivity extends Activity {
             });
         }
 
-        @JavascriptInterface public void openSony() {
-            runOnUiThread(() -> {
-                Intent sony = getPackageManager().getLaunchIntentForPackage("com.sony.playmemories.mobile");
-                if (sony != null) {
-                    try { startActivity(sony); return; }
-                    catch (android.content.ActivityNotFoundException ignored) { }
-                }
-                openExternal(Uri.parse("https://support.d-imaging.sony.co.jp/app/iemobile/en/"));
-            });
-        }
+        @JavascriptInterface public void openSony() { runOnUiThread(() -> launchSony(false)); }
 
         @JavascriptInterface public void pickPhoto() {
             runOnUiThread(() -> {
@@ -271,6 +378,9 @@ public final class MainActivity extends Activity {
                 result.put("photoPickerSupported", true);
                 result.put("androidVersion", Build.VERSION.SDK_INT);
                 result.put("androidRelease", Build.VERSION.RELEASE);
+                result.put("appVersion", BuildConfig.VERSION_NAME);
+                result.put("appVersionCode", BuildConfig.VERSION_CODE);
+                result.put("overlayAllowed", Settings.canDrawOverlays(MainActivity.this));
                 if (aiClient != null) {
                     JSONObject ai = aiClient.status();
                     result.put("aiConfigured", ai.optBoolean("aiConfigured", false));
