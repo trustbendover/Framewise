@@ -1,4 +1,4 @@
-# Framewise 0.2 · Sony a6100 photo assistant
+# Framewise 0.3 · Sony a6100 photo assistant
 
 An Android prototype for a Samsung Galaxy S23 FE running Android 15. It recommends photographic settings while leaving every camera change to the photographer.
 
@@ -13,15 +13,73 @@ An Android prototype for a Samsung Galaxy S23 FE running Android 15. It recommen
 - Optionally reads the cropped scene with Google Gemini (free tier available), or OpenAI, once per request or every 30 seconds after explicit activation.
 - Stores only camera preferences and a small text decision log locally. API keys and captured frames remain in memory.
 
-## Install the provided prototype
+## What's new in 0.3
 
-Transfer `Framewise-0.2-android.apk` to your own Android phone and open it. This uses the same signing key and a higher version code than 0.1, so Android can install it as an update. Android may ask you to allow installation from the application you use to open the APK. This is a locally signed **debug prototype**, not a Play Store release. No camera, microphone, file-storage, accessibility or overlay permission is requested. Android's screen-sharing system prompt and a visible foreground-service notification govern live capture.
+- **Auto-updater** from this repository's [GitHub Releases](https://github.com/trustbendover/Framewise/releases): Framewise checks on launch (at most every 6 hours) and from **Setup → Updates → Check for updates**.
+- **Live view fix** for Imaging Edge Mobile (see [Live view: why it kicked you out](#live-view-why-it-kicked-you-out)).
+- Step-by-step sharing status messages, black-frame (protected content) detection, an optional floating **Framewise** button over Sony, and recovery when Android recreates the screen.
+- Release builds are signed with a dedicated release key by GitHub Actions.
+
+## Install
+
+Download `Framewise-<version>-android.apk` from the [latest release](https://github.com/trustbendover/Framewise/releases/latest) on the phone and open it. Android asks once to allow installs from your browser or file manager.
+
+> **One-time step when coming from 0.2:** the 0.2 test APK was signed with a debug key; 0.3 and later are signed with the Framewise release key. Android cannot update an app across signing keys, so **uninstall Framewise 0.2 once**, then install 0.3. (Only the saved camera preferences and the session notes are lost; API keys were never stored.) From then on updates install inside the app.
+
+No camera, microphone or file-storage permission is requested. Android's screen-sharing prompt and a visible notification govern live capture. *Install unknown apps* (for in-app updates) and *Display over other apps* (for the optional floating button) are asked for only when you use those features.
+
+## Updates
+
+1. On launch Framewise reads `https://api.github.com/repos/trustbendover/Framewise/releases/latest` (public, no token). If the release tag (e.g. `v0.3.1`, or a `versionCode: N` line in the notes) is newer than the installed version, a banner appears.
+2. **Setup → Updates → Install** downloads the release's `.apk` asset and its `.sha256` asset, checks the SHA-256, and checks that the APK is Framewise with a higher versionCode **signed by the same key** as the installed app. Any mismatch deletes the file and installs nothing.
+3. The first time, Android opens *Install unknown apps* for Framewise; switch on *Allow from this source* and go back. The download continues automatically.
+4. The APK is installed through a `PackageInstaller` session; Android shows its own confirmation, then Framewise restarts as the new version.
+
+Updates need internet: the camera's Wi-Fi has none, so check on mobile data or home Wi-Fi.
+
+## Releasing a new version (maintainer)
+
+1. Raise `versionCode` and `versionName` in `android/app/build.gradle` (e.g. `4` / `0.3.1`) and commit.
+2. Tag and push: `git tag v0.3.1 && git push origin v0.3.1`.
+3. `.github/workflows/release.yml` runs the tests, checks the tag matches `versionName`, builds a release APK signed with the release key, verifies the signature, and publishes `Framewise-0.3.1-android.apk` plus `Framewise-0.3.1-android.apk.sha256` as a GitHub Release. Phones pick it up on their next check.
+
+Required repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `FRAMEWISE_KEYSTORE_BASE64` | `base64 -w0 framewise-release.jks` |
+| `FRAMEWISE_KEYSTORE_PASSWORD` | keystore password |
+| `FRAMEWISE_KEY_ALIAS` | key alias (`framewise`) |
+| `FRAMEWISE_KEY_PASSWORD` | key password |
+
+The keystore itself is never committed (`*.jks` is git-ignored). Keep a private backup: if it is lost, every user has to uninstall once to move to a new key. Locally, a signed release builds with `FRAMEWISE_KEYSTORE_FILE=/path/framewise-release.jks` plus the three password/alias variables exported, then `./gradlew assembleRelease`.
+
+## Live view: why it kicked you out
+
+Imaging Edge Mobile (`com.sony.playmemories.mobile`, inspected in version 7.8.6) declares `android:finishOnCloseSystemDialogs="true"` on its home, Wi-Fi, camera-list and remote-shooting screens, marks them `excludeFromRecents`, and sets `resizeableActivity="false"`. In practice:
+
+- Whenever Android sends its "close system dialogs" signal (pressing Home, opening Recents, and most likely the system screen-sharing picker as it hands over to the chosen app), Android finishes those Imaging Edge screens, even when they are in the background. This is the most likely cause of the "it opens and instantly kicks me out" symptom: the shared app vanishes and Android ends the capture. It matches the manifest, but it has not been confirmed on the phone.
+- Imaging Edge does **not** support split screen on phones, so the 0.2 instructions (single app + split screen) could not work.
+
+What 0.3 does instead:
+
+1. **Share Sony live view** asks Android for an **entire-screen** share (Android 14+ `MediaProjectionConfig.createConfigForDefaultDisplay()`), then Framewise **opens Imaging Edge itself** with a normal app launch (no system UI involved).
+2. While Sony is on screen, Framewise keeps the newest frame (1 per second, in memory only). Frames are ignored while Framewise itself is on screen, and the frame grabbed during the switch back is discarded, so the last Sony image stays.
+3. Go back to Framewise with the floating **Framewise** button (optional, needs *Display over other apps*) or the notification's **Back to Framewise** action — not Home/Recents. Use **Open Sony app** to return to the camera.
+4. The status line reports each step (notification permission → Android prompt → service → capture → frames) and the reason if Android ends sharing. If sharing ends within seconds without frames, Framewise explains the Imaging Edge behaviour. All-black frames are flagged as protected content or a stopped preview.
+5. Android 14/15 rules are respected: typed `mediaProjection` foreground service started before `getMediaProjection`, one use per consent token, callback registered before the single virtual display, resize handled on that display. The activity no longer restarts on split-screen/dark-mode/density changes, and the page reattaches to a running capture.
+
+**Share a single app instead** still offers Android's original picker for testing, but because the picker relaunches Imaging Edge it is expected to show the old behaviour.
+
+Not yet verified on a real S23 FE + a6100 (no device was available while building 0.3). In particular, whether opening the notification shade also closes Imaging Edge needs a phone test; the floating button avoids the shade entirely.
+
+## Using Framewise
 
 1. Open Framewise and choose **Explore a sample first** to check the interface offline, or **Open photo** to try a real saved image without a live camera connection.
 2. Open **Setup → Camera & lens**. Select the lens label and enter its current focal length and available aperture limits. The lens name alone does not identify its exact version.
-3. Connect the a6100 to **Sony Imaging Edge Mobile** over its Wi-Fi, then open remote shooting. On the camera: `MENU → Network → Ctrl w/ Smartphone → On → Connection`.
-4. In Framewise choose **Setup → Live view → Share Sony live view**. In the Android permission sheet choose **A single app**, then **Imaging Edge Mobile**. Share the Sony app, not the whole screen or Framewise.
-5. On Samsung, open Recents, tap the app icon above its card, select **Open in split screen view**, and choose the other app. Keep Sony's live preview visible. If either application does not allow split screen or sharing, stop and use the offline/sample advisor until a wired capture connection is implemented and tested.
+3. On the camera: `MENU → Network → Ctrl w/ Smartphone → On → Connection`.
+4. In Framewise choose **Setup → Live view**. Optionally tap **Allow a Framewise button over Sony** once. Then tap **Share Sony live view** and **Start** in Android's prompt (entire screen). Framewise opens Imaging Edge.
+5. In Imaging Edge connect to the camera and open remote shooting. When the preview is showing, come back with the floating **Framewise** button or the notification's **Back to Framewise** (avoid Home and Recents, they make Imaging Edge close).
 6. Use **Crop** to trim Sony menus and controls out of the shared image.
 7. Put the a6100 in **M mode with fixed ISO**. Enter shutter speed, aperture, ISO and the camera's MM meter reading. Positive MM values mean the current exposure is above the camera's metered target. Do not enter a saturated/flashing meter value as an exact reading.
 8. Choose your creative direction, lock anything you want to preserve, then tap **Suggest my settings**.
@@ -46,13 +104,13 @@ A future fine-tuned model would require appropriately licensed scene examples, a
 
 ## Accuracy and first-device checks
 
-This is a working compiled prototype, **not yet tested with an actual S23 FE and a6100**. The live route depends on Sony IEM allowing app capture and remaining visible in split screen. Shutter release, playback, camera power saving and app updates may pause the camera preview. A fresh screenshot timestamp proves the shared app rendered a frame, not that Sony received a fresh camera frame. Stop sharing from Framewise, Android's sharing indicator, or the foreground notification. Locking the phone can stop capture.
+This is a working compiled prototype, **not yet tested with an actual S23 FE and a6100**. The live route depends on Imaging Edge staying open while it is shared (see above). Shutter release, playback, camera power saving and app updates may pause the camera preview. A fresh screenshot timestamp proves the shared app rendered a frame, not that Sony received a fresh camera frame. Stop sharing from Framewise, Android's sharing indicator, or the foreground notification. Locking the phone can stop capture.
 
 The shared preview carries no dependable shutter/aperture/ISO metadata. Enter those values yourself. A rendered preview cannot establish absolute illumination or RAW highlight headroom; its histogram describes display pixels. Recommendations use your entered MM meter target and creative goal, not an independently measured exposure. Single-frame AI cannot determine subject speed reliably; explicit movement selections take priority. Flash metering, depth/distance calibration, exact lens sharpness models, custom white-balance measurement and a direct camera-control protocol are not implemented.
 
 ## Build from source
 
-Requires JDK 17, Android SDK platform 35 and build-tools 35.0.0. Open `android/` in Android Studio, set your local SDK path, and build the debug APK, or run:
+Requires JDK 17, Android SDK platform 35 and build-tools 35.0.0. Open `android/` in Android Studio, set your local SDK path, and build the debug APK, or run (a debug build is signed with your own debug key, so it cannot update a release install):
 
 ```powershell
 cd android
@@ -78,7 +136,9 @@ node --test tests/*.test.mjs
 - `public/engine.mjs`: deterministic exposure/constraint kernel; no DOM, network or image-based light metering.
 - `public/app.js`, `index.html`, `styles.css`: bundled responsive UI and manual decision workflow.
 - `android/.../MainActivity.java`: allowlisted asset WebView and narrow native bridge.
-- `android/.../CaptureService.java`: permission-backed foreground MediaProjection service, one virtual display, resized surface and one in-memory JPEG at up to 1 FPS / 960 pixels.
+- `android/.../CaptureService.java`: permission-backed foreground MediaProjection service, one virtual display, resized surface, black-frame detection, optional floating return button and one in-memory JPEG at up to 1 FPS / 960 pixels.
+- `.github/workflows/release.yml`: tag-triggered signed release build and GitHub Release publishing.
+- `android/.../UpdateManager.java`, `UpdateReceiver.java`: GitHub Releases check, checksum/signature-verified download and PackageInstaller session install.
 - `android/.../AiClient.java`: bounded, direct HTTPS Responses requests, structured scene validation, session-only credentials and per-connection internet routing.
 - `server.mjs`: optional loopback-only development API; fixed upstream, origin and host checks, bounded requests.
 

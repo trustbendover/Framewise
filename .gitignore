@@ -6,3 +6,8 @@ android/local.properties
 .env
 *.keystore
 *.jks
+dist/
+out/
+secrets/
+*.p12
+keystore-info.txt
