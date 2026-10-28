@@ -1,4 +1,4 @@
-# Framewise 0.3 · Sony a6100 photo assistant
+# Framewise 0.3.1 · Sony a6100 photo assistant
 
 An Android prototype for a Samsung Galaxy S23 FE running Android 15. It recommends photographic settings while leaving every camera change to the photographer.
 
@@ -13,12 +13,15 @@ An Android prototype for a Samsung Galaxy S23 FE running Android 15. It recommen
 - Optionally reads the cropped scene with Google Gemini (free tier available), or OpenAI, once per request or every 30 seconds after explicit activation.
 - Stores only camera preferences and a small text decision log locally. API keys and captured frames remain in memory.
 
-## What's new in 0.3
+## What's new in 0.3.1
 
-- **Auto-updater** from this repository's [GitHub Releases](https://github.com/trustbendover/Framewise/releases): Framewise checks on launch (at most every 6 hours) and from **Setup → Updates → Check for updates**.
-- **Live view fix** for Imaging Edge Mobile (see [Live view: why it kicked you out](#live-view-why-it-kicked-you-out)).
-- Step-by-step sharing status messages, black-frame (protected content) detection, an optional floating **Framewise** button over Sony, and recovery when Android recreates the screen.
-- Release builds are signed with a dedicated release key by GitHub Actions.
+- Live view now connects straight to your camera over its own Wi-Fi. You no longer need the Sony app.
+- Framewise reads your shutter speed, aperture and ISO from the camera and fills them in for you.
+- AI suggestions keep using your mobile data while you're connected to the camera.
+- The Sony app option is still there, but it disconnects as soon as you switch away from it, so the direct connection is the better choice.
+- You'll now see these "What's new" notes before you update, and once after the update.
+
+Notes for every version are in [`release-notes/`](release-notes/) (see [CHANGELOG.md](CHANGELOG.md)).
 
 ## Install
 
@@ -39,9 +42,10 @@ Updates need internet: the camera's Wi-Fi has none, so check on mobile data or h
 
 ## Releasing a new version (maintainer)
 
-1. Raise `versionCode` and `versionName` in `android/app/build.gradle` (e.g. `4` / `0.3.1`) and commit.
-2. Tag and push: `git tag v0.3.1 && git push origin v0.3.1`.
-3. `.github/workflows/release.yml` runs the tests, checks the tag matches `versionName`, builds a release APK signed with the release key, verifies the signature, and publishes `Framewise-0.3.1-android.apk` plus `Framewise-0.3.1-android.apk.sha256` as a GitHub Release. Phones pick it up on their next check.
+1. Raise `versionCode` and `versionName` in `android/app/build.gradle` (e.g. `5` / `0.3.2`).
+2. Write the patch notes in `release-notes/v0.3.2.md`: a `## What's new in Framewise 0.3.2` heading and short, friendly bullet points (no jargon, e.g. "Live view now connects straight to your camera"). Add the file to `CHANGELOG.md` and copy the same bullets into `public/whats-new.json` (the tests check they match). Don't add a `versionCode` line; the workflow appends it.
+3. Commit, then tag and push: `git tag v0.3.2 && git push origin v0.3.2`.
+4. `.github/workflows/release.yml` runs the tests, checks the tag matches `versionName` and that the notes file exists, builds a release APK signed with the release key, verifies the signature, and publishes `Framewise-0.3.2-android.apk` plus `.sha256` as a GitHub Release. The release description is the notes file plus a final `versionCode: N` line that the in-app updater reads. Phones show the notes as "What's new in 0.3.2" before installing, and once more after the update.
 
 Required repository secrets (Settings → Secrets and variables → Actions):
 
@@ -54,24 +58,29 @@ Required repository secrets (Settings → Secrets and variables → Actions):
 
 The keystore itself is never committed (`*.jks` is git-ignored). Keep a private backup: if it is lost, every user has to uninstall once to move to a new key. Locally, a signed release builds with `FRAMEWISE_KEYSTORE_FILE=/path/framewise-release.jks` plus the three password/alias variables exported, then `./gradlew assembleRelease`.
 
-## Live view: why it kicked you out
+## Live view: connect straight to the camera (0.3.1)
 
-Imaging Edge Mobile (`com.sony.playmemories.mobile`, inspected in version 7.8.6) declares `android:finishOnCloseSystemDialogs="true"` on its home, Wi-Fi, camera-list and remote-shooting screens, marks them `excludeFromRecents`, and sets `resizeableActivity="false"`. In practice:
+**Set up the camera once (a6100):**
 
-- Whenever Android sends its "close system dialogs" signal (pressing Home, opening Recents, and most likely the system screen-sharing picker as it hands over to the chosen app), Android finishes those Imaging Edge screens, even when they are in the background. This is the most likely cause of the "it opens and instantly kicks me out" symptom: the shared app vanishes and Android ends the capture. It matches the manifest, but it has not been confirmed on the phone.
-- Imaging Edge does **not** support split screen on phones, so the 0.2 instructions (single app + split screen) could not work.
+1. MENU → Network → **Ctrl w/ Smartphone** → **On**. Set **Always Connected** to On if you like, and make sure **Airplane Mode** is Off.
+2. Choose **Connection**. The camera shows a QR code; press the **Delete (trash) button** to see the Wi-Fi name (`DIRECT-xxxx:ILCE-6100`) and password.
+3. Close (force-stop) Imaging Edge Mobile. The camera only talks to one app at a time.
 
-What 0.3 does instead:
+**In Framewise:** Setup → Connection → type the camera Wi-Fi password (the name is optional) → **Connect to camera** → pick the camera in Android's "Connect to device" prompt. Framewise then:
 
-1. **Share Sony live view** asks Android for an **entire-screen** share (Android 14+ `MediaProjectionConfig.createConfigForDefaultDisplay()`), then Framewise **opens Imaging Edge itself** with a normal app launch (no system UI involved).
-2. While Sony is on screen, Framewise keeps the newest frame (1 per second, in memory only). Frames are ignored while Framewise itself is on screen, and the frame grabbed during the switch back is discarded, so the last Sony image stays.
-3. Go back to Framewise with the floating **Framewise** button (optional, needs *Display over other apps*) or the notification's **Back to Framewise** action — not Home/Recents. Use **Open Sony app** to return to the camera.
-4. The status line reports each step (notification permission → Android prompt → service → capture → frames) and the reason if Android ends sharing. If sharing ends within seconds without frames, Framewise explains the Imaging Edge behaviour. All-black frames are flagged as protected content or a stopped preview.
-5. Android 14/15 rules are respected: typed `mediaProjection` foreground service started before `getMediaProjection`, one use per consent token, callback registered before the single virtual display, resize handled on that display. The activity no longer restarts on split-screen/dark-mode/density changes, and the page reattaches to a running capture.
+- joins only the camera Wi-Fi for its own camera traffic (Android `WifiNetworkSpecifier`); the phone keeps mobile data as its main connection, so AI and update checks still work;
+- finds the camera's Remote API (SSDP, then `192.168.122.1:10000`/`:8080`), switches it to remote shooting and starts live view;
+- shows the newest live-view frame (only the latest frame is kept, in memory) and reads shutter, aperture, ISO, exposure mode and compensation once a second (`getEvent`) to fill in the manual fields.
 
-**Share a single app instead** still offers Android's original picker for testing, but because the picker relaunches Imaging Edge it is expected to show the old behaviour.
+Plain HTTP is allowed **only** to `192.168.122.1` (`res/xml/network_security_config.xml`); everything else stays HTTPS-only. The password is stored only on the phone (app-private settings) when *Remember* is on.
 
-Not yet verified on a real S23 FE + a6100 (no device was available while building 0.3). In particular, whether opening the notification shade also closes Imaging Edge needs a phone test; the floating button avoids the shade entirely.
+If the camera connects but live view never starts, your firmware may limit Wi-Fi remote control. Sony documents live view over **USB** for the a6100 (MENU → Network → **PC Remote Function** → PC Remote, with Ctrl w/ Smartphone Off). Framewise does not support USB control yet.
+
+### Why sharing Imaging Edge's screen can't work well
+
+Decompiling Imaging Edge Mobile 7.8.6 shows that when its last screen leaves the foreground (`ContextManager.onStop`), it sends the camera a **Wi-Fi off** command and closes all its screens (`finishAllContexts`, `disconnectFromCamera`). So the moment you switch to Framewise, Imaging Edge disconnects and kicks you out, and the shared picture freezes. Its screens also close on "close system dialogs" and it does not support split screen.
+
+The screen-share option (Setup → Connection → *Other option*) is kept for testing: it only produces pictures while Imaging Edge is on screen.
 
 ## Using Framewise
 

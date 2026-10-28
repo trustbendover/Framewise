@@ -57,6 +57,7 @@ public final class MainActivity extends Activity {
         paths.put("/assets/styles.css", "text/css");
         paths.put("/assets/engine.mjs", "text/javascript");
         paths.put("/assets/demo.svg", "image/svg+xml");
+        paths.put("/assets/whats-new.json", "application/json");
         ASSETS = Collections.unmodifiableMap(paths);
     }
     private WebView webView;
@@ -67,6 +68,7 @@ public final class MainActivity extends Activity {
     private boolean openSonyAfterShare;
     private boolean resumed;
     private UpdateManager updates;
+    private SonyCameraClient camera;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService photoExecutor = Executors.newSingleThreadExecutor();
 
@@ -143,6 +145,7 @@ public final class MainActivity extends Activity {
                 & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         }
         webView.loadUrl("https://" + APP_HOST + "/assets/index.html");
+        camera = new SonyCameraClient(this);
         updates = new UpdateManager(this);
         UpdateManager.setListener(status -> publishScript("if(typeof window.onUpdateStatus==='function'){window.onUpdateStatus("
             + JSONObject.quote(status.toString()) + ");}"));
@@ -288,6 +291,7 @@ public final class MainActivity extends Activity {
         photoExecutor.shutdownNow();
         if (aiClient != null) { aiClient.close(); aiClient = null; }
         UpdateManager.setListener(null);
+        if (camera != null) { camera.close(); camera = null; }
         if (updates != null) { updates.close(); updates = null; }
         mainHandler.removeCallbacksAndMessages(null);
         if (webView != null) {
@@ -315,6 +319,26 @@ public final class MainActivity extends Activity {
                 requestCapture();
             });
         }
+
+        /** Direct Wi-Fi connection to the camera (Camera Remote API), no Imaging Edge needed. */
+        @JavascriptInterface public void cameraConnect(String ssid, String password, boolean remember) {
+            runOnUiThread(() -> {
+                if (camera == null) return;
+                String key = password == null || password.trim().isEmpty() ? camera.savedPassword() : password;
+                camera.connect(ssid, key, remember);
+            });
+        }
+
+        @JavascriptInterface public void cameraDisconnect() { runOnUiThread(() -> { if (camera != null) camera.disconnect(); }); }
+
+        @JavascriptInterface public String cameraStatus(String sinceFrame) {
+            if (camera == null) return "{\"state\":\"idle\"}";
+            long since;
+            try { since = Long.parseLong(sinceFrame); } catch (NumberFormatException e) { since = 0; }
+            return camera.status(since).toString();
+        }
+
+        @JavascriptInterface public String cameraSaved() { return camera == null ? "{}" : camera.saved().toString(); }
 
         @JavascriptInterface public boolean overlayAllowed() { return Settings.canDrawOverlays(MainActivity.this); }
 
@@ -381,6 +405,7 @@ public final class MainActivity extends Activity {
                 result.put("appVersion", BuildConfig.VERSION_NAME);
                 result.put("appVersionCode", BuildConfig.VERSION_CODE);
                 result.put("overlayAllowed", Settings.canDrawOverlays(MainActivity.this));
+                result.put("directCamera", true);
                 if (aiClient != null) {
                     JSONObject ai = aiClient.status();
                     result.put("aiConfigured", ai.optBoolean("aiConfigured", false));

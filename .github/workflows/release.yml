@@ -52,6 +52,12 @@ jobs:
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
+      - name: Check friendly release notes exist
+        run: |
+          if [ ! -s "release-notes/${TAG}.md" ]; then
+            echo "::error::Add release-notes/${TAG}.md (short, friendly bullet points) before tagging"; exit 1
+          fi
+
       - name: Restore signing key
         env:
           FRAMEWISE_KEYSTORE_BASE64: ${{ secrets.FRAMEWISE_KEYSTORE_BASE64 }}
@@ -87,9 +93,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="Framewise ${VERSION_NAME} for Android (versionCode: ${VERSION_CODE}). Install the APK, or update from inside Framewise (Setup → Updates)."
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          cat "release-notes/${TAG}.md" > "$NOTES_FILE"
+          printf '\n\n---\nInstall the APK, or update from inside Framewise (Setup → Updates).\n\nversionCode: %s\n' "$VERSION_CODE" >> "$NOTES_FILE"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --title "Framewise ${VERSION_NAME}" --notes-file "$NOTES_FILE"
           else
-            gh release create "$TAG" dist/* --title "Framewise ${VERSION_NAME}" --notes "$NOTES"
+            gh release create "$TAG" dist/* --title "Framewise ${VERSION_NAME}" --notes-file "$NOTES_FILE"
           fi
