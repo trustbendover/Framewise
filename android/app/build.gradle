@@ -1,0 +1,10 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'app.framewise'
+    compileSdk 35
+    defaultConfig { applicationId 'app.framewise'; minSdk 29; targetSdk 35; versionCode 2; versionName '0.2.0' }
+    sourceSets { main { assets.srcDirs = ['../../public'] } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    buildTypes { debug { debuggable true }; release { minifyEnabled false } }
+}
+dependencies { implementation 'androidx.exifinterface:exifinterface:1.4.2' }
