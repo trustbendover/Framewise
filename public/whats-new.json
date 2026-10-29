@@ -1,11 +1,10 @@
 {
-  "version": "0.3.1",
-  "title": "What's new in Framewise 0.3.1",
+  "version": "0.3.2",
+  "title": "What's new in Framewise 0.3.2",
   "notes": [
-    "Live view now connects straight to your camera over its own Wi-Fi. You no longer need the Sony app.",
-    "Framewise reads your shutter speed, aperture and ISO from the camera and fills them in for you.",
-    "AI suggestions keep using your mobile data while you're connected to the camera.",
-    "The Sony app option is still there, but it disconnects as soon as you switch away from it, so the direct connection is the better choice.",
-    "You'll now see these \"What's new\" notes before you update, and once after the update."
+    "Cleaned up: the old \"share the Sony app's screen\" option is gone. It kept disconnecting, and the direct Wi-Fi live view works much better.",
+    "Framewise no longer asks for screen sharing, notification or \"display over other apps\" permissions.",
+    "Live view over the camera's own Wi-Fi works exactly as before.",
+    "A USB-C cable connection is on the way in 0.4 as a backup option."
   ]
 }

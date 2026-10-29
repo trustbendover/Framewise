@@ -1,25 +1,18 @@
 package app.framewise;
 
-import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import androidx.exifinterface.media.ExifInterface;
-import android.media.projection.MediaProjectionConfig;
-import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
-import android.provider.Settings;
-import android.content.res.Configuration;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -45,8 +38,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final int CAPTURE_REQUEST = 100;
-    private static final int NOTIFICATION_REQUEST = 101;
     private static final int PHOTO_REQUEST = 102;
     private static final String APP_HOST = "appassets.androidplatform.net";
     private static final Map<String, String> ASSETS;
@@ -62,11 +53,7 @@ public final class MainActivity extends Activity {
     }
     private WebView webView;
     private AiClient aiClient;
-    private boolean requestingCapture;
     private boolean requestingPhoto;
-    private boolean singleAppRequested;
-    private boolean openSonyAfterShare;
-    private boolean resumed;
     private UpdateManager updates;
     private SonyCameraClient camera;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -154,20 +141,11 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        resumed = true;
-        CaptureState.hostResumed(isInMultiWindowMode());
         if (updates != null) updates.onHostResumed(this);
     }
 
     @Override protected void onPause() {
-        resumed = false;
-        CaptureState.hostPaused();
         super.onPause();
-    }
-
-    @Override public void onMultiWindowModeChanged(boolean isInMultiWindowMode, Configuration newConfig) {
-        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig);
-        CaptureState.hostMultiWindow(isInMultiWindowMode);
     }
 
     private void publishScript(String script) {
@@ -182,40 +160,6 @@ public final class MainActivity extends Activity {
     private void openExternal(Uri url) {
         try { startActivity(new Intent(Intent.ACTION_VIEW, url)); }
         catch (android.content.ActivityNotFoundException ignored) { }
-    }
-
-    private void requestCapture() {
-        if (requestingCapture || CaptureState.isCapturing()) return;
-        requestingCapture = true;
-        CaptureState.requesting("Step 1 of 4: checking notification permission (Android shows a sharing notification)…");
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
-        } else launchCaptureConsent();
-    }
-
-    private void launchCaptureConsent() {
-        MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
-        Intent consent;
-        if (Build.VERSION.SDK_INT >= 34 && !singleAppRequested) {
-            // Entire screen: Imaging Edge closes its screens whenever Android's app picker relaunches it,
-            // so the reliable route is to share the whole display and let Framewise open Sony directly.
-            consent = manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay());
-            CaptureState.requesting("Step 2 of 4: in Android's prompt tap “Start” to share the entire screen. Framewise then opens Imaging Edge.");
-        } else {
-            consent = manager.createScreenCaptureIntent();
-            CaptureState.requesting("Step 2 of 4: in Android's prompt choose “A single app” → Imaging Edge, or “Entire screen”.");
-        }
-        try { startActivityForResult(consent, CAPTURE_REQUEST); }
-        catch (RuntimeException error) {
-            requestingCapture = false;
-            CaptureState.stopped("Android could not open screen sharing. Try again.");
-        }
-    }
-
-    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
-        super.onRequestPermissionsResult(requestCode, permissions, results);
-        if (requestCode == NOTIFICATION_REQUEST) launchCaptureConsent();
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -235,56 +179,6 @@ public final class MainActivity extends Activity {
             catch (RejectedExecutionException error) { publishPhoto(null, "Reopen the app and choose your photo again."); }
             return;
         }
-        if (requestCode != CAPTURE_REQUEST) return;
-        requestingCapture = false;
-        if (resultCode != RESULT_OK || data == null) {
-            CaptureState.stopped("Screen sharing was cancelled in Android's prompt. No camera preview was captured.");
-            return;
-        }
-        CaptureState.starting("Step 3 of 4: permission granted, starting the sharing service…");
-        Intent service = new Intent(this, CaptureService.class)
-            .setAction(CaptureService.ACTION_START)
-            .putExtra("resultCode", resultCode)
-            .putExtra("resultData", data);
-        try {
-            startForegroundService(service);
-            if (openSonyAfterShare) waitThenOpenSony(SystemClock.elapsedRealtime());
-        } catch (RuntimeException error) {
-            boolean background = Build.VERSION.SDK_INT >= 31 && error instanceof android.app.ForegroundServiceStartNotAllowedException;
-            CaptureState.stopped(background
-                ? "Android blocked screen sharing because Framewise was not in the foreground. Keep Framewise open while you accept the prompt."
-                : "Android could not start screen sharing (" + error.getClass().getSimpleName() + "). Keep Framewise open and try again.");
-        }
-    }
-
-    /** After an entire-screen share starts while Framewise is visible, bring Imaging Edge forward directly. */
-    private void waitThenOpenSony(long since) {
-        mainHandler.postDelayed(() -> {
-            if (isDestroyed()) return;
-            if ("capturing".equals(captureStateName())) {
-                if (resumed) launchSony(true);
-                return;
-            }
-            if (CaptureState.isCapturing() && SystemClock.elapsedRealtime() - since < 6000) waitThenOpenSony(since);
-        }, 300);
-    }
-
-    private static String captureStateName() {
-        try { return new JSONObject(CaptureState.json()).optString("state"); } catch (JSONException e) { return ""; }
-    }
-
-    private void launchSony(boolean fromShare) {
-        Intent sony = getPackageManager().getLaunchIntentForPackage(CaptureService.SONY_PACKAGE);
-        if (sony != null) {
-            sony.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            try {
-                startActivity(sony);
-                if (fromShare) CaptureState.step("Sharing is on and Imaging Edge is open. Connect the camera and start remote shooting, then return with the Framewise button or notification.");
-                return;
-            } catch (android.content.ActivityNotFoundException ignored) { }
-        }
-        if (fromShare) CaptureState.step("Sharing is on, but Imaging Edge Mobile is not installed.");
-        openExternal(Uri.parse("https://support.d-imaging.sony.co.jp/app/iemobile/en/"));
     }
 
     @Override protected void onDestroy() {
@@ -299,7 +193,6 @@ public final class MainActivity extends Activity {
             webView.destroy();
             webView = null;
         }
-        // The explicitly started foreground capture continues while Sony's app is visible.
         super.onDestroy();
     }
 
@@ -309,17 +202,6 @@ public final class MainActivity extends Activity {
     }
 
     final class NativeBridge {
-        @JavascriptInterface public void startCapture() { startCaptureMode("screen"); }
-
-        /** mode "screen" (recommended, entire screen then Framewise opens Sony) or "app" (Android's single-app picker). */
-        @JavascriptInterface public void startCaptureMode(String mode) {
-            runOnUiThread(() -> {
-                singleAppRequested = "app".equals(mode);
-                openSonyAfterShare = !singleAppRequested;
-                requestCapture();
-            });
-        }
-
         /** Direct Wi-Fi connection to the camera (Camera Remote API), no Imaging Edge needed. */
         @JavascriptInterface public void cameraConnect(String ssid, String password, boolean remember) {
             runOnUiThread(() -> {
@@ -340,15 +222,6 @@ public final class MainActivity extends Activity {
 
         @JavascriptInterface public String cameraSaved() { return camera == null ? "{}" : camera.saved().toString(); }
 
-        @JavascriptInterface public boolean overlayAllowed() { return Settings.canDrawOverlays(MainActivity.this); }
-
-        @JavascriptInterface public void requestOverlay() {
-            runOnUiThread(() -> {
-                try { startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()))); }
-                catch (RuntimeException ignored) { }
-            });
-        }
-
         @JavascriptInterface public void checkForUpdates() { if (updates != null) updates.check(true); }
 
         @JavascriptInterface public void installUpdate() { runOnUiThread(() -> { if (updates != null) updates.downloadAndInstall(MainActivity.this); }); }
@@ -359,15 +232,6 @@ public final class MainActivity extends Activity {
             if (url == null || !url.startsWith("https://github.com/" + BuildConfig.UPDATE_REPO + "/")) return;
             runOnUiThread(() -> openExternal(Uri.parse(url)));
         }
-
-        @JavascriptInterface public void stopCapture() {
-            runOnUiThread(() -> {
-                stopService(new Intent(MainActivity.this, CaptureService.class));
-                CaptureState.stopped(null);
-            });
-        }
-
-        @JavascriptInterface public void openSony() { runOnUiThread(() -> launchSony(false)); }
 
         @JavascriptInterface public void pickPhoto() {
             runOnUiThread(() -> {
@@ -392,19 +256,16 @@ public final class MainActivity extends Activity {
             });
         }
 
-        @JavascriptInterface public String getCaptureFrame() { return CaptureState.json(); }
-
         @JavascriptInterface public String getStatus() {
             JSONObject result = new JSONObject();
             try {
                 result.put("native", true);
-                result.put("captureSupported", true);
+                result.put("captureSupported", false);
                 result.put("photoPickerSupported", true);
                 result.put("androidVersion", Build.VERSION.SDK_INT);
                 result.put("androidRelease", Build.VERSION.RELEASE);
                 result.put("appVersion", BuildConfig.VERSION_NAME);
                 result.put("appVersionCode", BuildConfig.VERSION_CODE);
-                result.put("overlayAllowed", Settings.canDrawOverlays(MainActivity.this));
                 result.put("directCamera", true);
                 if (aiClient != null) {
                     JSONObject ai = aiClient.status();

@@ -4,7 +4,7 @@ An Android prototype for a Samsung Galaxy S23 FE running Android 15. It recommen
 
 ## What it does
 
-- Shows a user-shared preview from Sony Imaging Edge Mobile through Android MediaProjection.
+- Shows the a6100 live view directly over the camera's own Wi-Fi (Sony Camera Remote API).
 - Crops the shared app image locally, displays a preview histogram, and marks covered or delayed input.
 - Offers five creative priorities, subject movement choices, lens limits, a maximum ISO, and locks for shutter/aperture/ISO.
 - Calculates exposure from explicitly entered current settings and the camera's MM meter reading. Without a meter reading, unlocked ISO remains unknown.
@@ -58,7 +58,7 @@ Required repository secrets (Settings → Secrets and variables → Actions):
 
 The keystore itself is never committed (`*.jks` is git-ignored). Keep a private backup: if it is lost, every user has to uninstall once to move to a new key. Locally, a signed release builds with `FRAMEWISE_KEYSTORE_FILE=/path/framewise-release.jks` plus the three password/alias variables exported, then `./gradlew assembleRelease`.
 
-## Live view: connect straight to the camera (0.3.1)
+## Live view: connect straight to the camera
 
 **Set up the camera once (a6100):**
 
@@ -74,26 +74,23 @@ The keystore itself is never committed (`*.jks` is git-ignored). Keep a private 
 
 Plain HTTP is allowed **only** to `192.168.122.1` (`res/xml/network_security_config.xml`); everything else stays HTTPS-only. The password is stored only on the phone (app-private settings) when *Remember* is on.
 
-If the camera connects but live view never starts, your firmware may limit Wi-Fi remote control. Sony documents live view over **USB** for the a6100 (MENU → Network → **PC Remote Function** → PC Remote, with Ctrl w/ Smartphone Off). Framewise does not support USB control yet.
+If the camera connects but live view never starts, your firmware may limit Wi-Fi remote control. Sony documents live view over **USB** for the a6100 (MENU → Network → **PC Remote Function** → PC Remote, with Ctrl w/ Smartphone Off). A USB-C cable connection is planned for 0.4.
 
-### Why sharing Imaging Edge's screen can't work well
+### Removed: sharing Imaging Edge's screen (0.3.2)
 
-Decompiling Imaging Edge Mobile 7.8.6 shows that when its last screen leaves the foreground (`ContextManager.onStop`), it sends the camera a **Wi-Fi off** command and closes all its screens (`finishAllContexts`, `disconnectFromCamera`). So the moment you switch to Framewise, Imaging Edge disconnects and kicks you out, and the shared picture freezes. Its screens also close on "close system dialogs" and it does not support split screen.
-
-The screen-share option (Setup → Connection → *Other option*) is kept for testing: it only produces pictures while Imaging Edge is on screen.
+Imaging Edge Mobile sends the camera a Wi-Fi off command and closes as soon as it leaves the foreground, so screen sharing could never give a steady picture. 0.3.2 removed that option along with its screen-capture, notification and overlay permissions.
 
 ## Using Framewise
 
 1. Open Framewise and choose **Explore a sample first** to check the interface offline, or **Open photo** to try a real saved image without a live camera connection.
 2. Open **Setup → Camera & lens**. Select the lens label and enter its current focal length and available aperture limits. The lens name alone does not identify its exact version.
 3. On the camera: `MENU → Network → Ctrl w/ Smartphone → On → Connection`.
-4. In Framewise choose **Setup → Live view**. Optionally tap **Allow a Framewise button over Sony** once. Then tap **Share Sony live view** and **Start** in Android's prompt (entire screen). Framewise opens Imaging Edge.
-5. In Imaging Edge connect to the camera and open remote shooting. When the preview is showing, come back with the floating **Framewise** button or the notification's **Back to Framewise** (avoid Home and Recents, they make Imaging Edge close).
-6. Use **Crop** to trim Sony menus and controls out of the shared image.
-7. Put the a6100 in **M mode with fixed ISO**. Enter shutter speed, aperture, ISO and the camera's MM meter reading. Positive MM values mean the current exposure is above the camera's metered target. Do not enter a saturated/flashing meter value as an exact reading.
-8. Choose your creative direction, lock anything you want to preserve, then tap **Suggest my settings**.
-9. Change whichever settings you want on the camera. Check only those settings in the suggestion cards, then confirm that you changed them. Confirmation updates the app's records; there is no camera-write interface.
-10. Read the meter again after changing settings or light. Verify with a test photograph and the camera histogram.
+4. In Framewise choose **Setup → Live view**, enter the camera Wi-Fi password and tap **Connect to camera**.
+5. Optionally use **Crop** to trim the preview before AI analysis.
+6. Put the a6100 in **M mode with fixed ISO**. Enter shutter speed, aperture, ISO and the camera's MM meter reading. Positive MM values mean the current exposure is above the camera's metered target. Do not enter a saturated/flashing meter value as an exact reading.
+7. Choose your creative direction, lock anything you want to preserve, then tap **Suggest my settings**.
+8. Change whichever settings you want on the camera. Check only those settings in the suggestion cards, then confirm that you changed them. Confirmation updates the app's records; there is no camera-write interface.
+9. Read the meter again after changing settings or light. Verify with a test photograph and the camera histogram.
 
 ## Optional AI
 
@@ -113,9 +110,9 @@ A future fine-tuned model would require appropriately licensed scene examples, a
 
 ## Accuracy and first-device checks
 
-This is a working compiled prototype, **not yet tested with an actual S23 FE and a6100**. The live route depends on Imaging Edge staying open while it is shared (see above). Shutter release, playback, camera power saving and app updates may pause the camera preview. A fresh screenshot timestamp proves the shared app rendered a frame, not that Sony received a fresh camera frame. Stop sharing from Framewise, Android's sharing indicator, or the foreground notification. Locking the phone can stop capture.
+Direct Wi-Fi live view has been confirmed working on a real a6100 with a Galaxy S23 FE. Shutter release, playback, camera power saving and app updates may pause the preview.
 
-The shared preview carries no dependable shutter/aperture/ISO metadata. Enter those values yourself. A rendered preview cannot establish absolute illumination or RAW highlight headroom; its histogram describes display pixels. Recommendations use your entered MM meter target and creative goal, not an independently measured exposure. Single-frame AI cannot determine subject speed reliably; explicit movement selections take priority. Flash metering, depth/distance calibration, exact lens sharpness models, custom white-balance measurement and a direct camera-control protocol are not implemented.
+Shutter, aperture and ISO are read from the camera when connected; check them before relying on them. A rendered preview cannot establish absolute illumination or RAW highlight headroom; its histogram describes display pixels. Recommendations use your entered MM meter target and creative goal, not an independently measured exposure. Single-frame AI cannot determine subject speed reliably; explicit movement selections take priority. Flash metering, depth/distance calibration, exact lens sharpness models, custom white-balance measurement and a direct camera-control protocol are not implemented.
 
 ## Build from source
 
@@ -145,7 +142,7 @@ node --test tests/*.test.mjs
 - `public/engine.mjs`: deterministic exposure/constraint kernel; no DOM, network or image-based light metering.
 - `public/app.js`, `index.html`, `styles.css`: bundled responsive UI and manual decision workflow.
 - `android/.../MainActivity.java`: allowlisted asset WebView and narrow native bridge.
-- `android/.../CaptureService.java`: permission-backed foreground MediaProjection service, one virtual display, resized surface, black-frame detection, optional floating return button and one in-memory JPEG at up to 1 FPS / 960 pixels.
+- `android/.../SonyCameraClient.java`: direct Wi-Fi connection to the camera's Remote API, live-view frames and settings readout.
 - `.github/workflows/release.yml`: tag-triggered signed release build and GitHub Release publishing.
 - `android/.../UpdateManager.java`, `UpdateReceiver.java`: GitHub Releases check, checksum/signature-verified download and PackageInstaller session install.
 - `android/.../AiClient.java`: bounded, direct HTTPS Responses requests, structured scene validation, session-only credentials and per-connection internet routing.
@@ -156,7 +153,6 @@ node --test tests/*.test.mjs
 - [Sony a6100 smartphone live view](https://helpguide.sony.net/ilc/1950/v1/en/contents/TP0002670835.html)
 - [Sony HDMI information display](https://helpguide.sony.net/ilc/1950/v1/en/contents/TP0002647431.html)
 - [Sony USB webcam limitations](https://support.d-imaging.sony.co.jp/app/webcam/en/instruction/)
-- [Android MediaProjection](https://developer.android.com/media/grow/media-projection)
 - [Samsung split screen](https://www.samsung.com/us/support/answer/ANS10002022/)
 - [OpenAI image inputs](https://developers.openai.com/api/docs/guides/images-vision)
 - [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses)
