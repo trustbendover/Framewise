@@ -50,7 +50,8 @@ final class UpdateManager {
     static final String ACTION_INSTALL_STATUS = "app.framewise.UPDATE_INSTALL_STATUS";
     private static final String API = "https://api.github.com/repos/" + BuildConfig.UPDATE_REPO + "/releases?per_page=30";
     private static final String PREFS = "framewise.updates";
-    private static final long AUTO_CHECK_INTERVAL_MS = 6L * 60 * 60 * 1000;
+    /** Automatic checks (launch and return to the app) at most every 20 minutes; GitHub allows 60 per hour. */
+    static final long AUTO_CHECK_INTERVAL_MS = 20L * 60 * 1000;
     private static final long MAX_APK_BYTES = 200L * 1024 * 1024;
     private static final Pattern VERSION = Pattern.compile("(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?");
     private static final Pattern VERSION_CODE = Pattern.compile("versionCode\\s*[:=]\\s*(\\d+)", Pattern.CASE_INSENSITIVE);
@@ -99,9 +100,19 @@ final class UpdateManager {
     /** Silent launch check, at most every few hours; only reports when an update exists. */
     void checkOnLaunch() {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        long last = prefs.getLong("lastCheck", 0);
-        if (System.currentTimeMillis() - last < AUTO_CHECK_INTERVAL_MS && !prefs.getBoolean("updatePending", false)) return;
+        if (!shouldAutoCheck(System.currentTimeMillis(), prefs.getLong("lastCheck", 0), prefs.getBoolean("updatePending", false),
+                prefs.getLong("lastCheckCode", -1), BuildConfig.VERSION_CODE)) return;
         check(false);
+    }
+
+    /**
+     * Regression fix (0.5.1): a 6-hour throttle hid new releases on launch when updates came quickly.
+     * Check when: never checked, an update was already pending, this is a newly installed version,
+     * the clock moved backwards, or the interval has passed.
+     */
+    static boolean shouldAutoCheck(long now, long lastCheck, boolean updatePending, long lastCheckCode, long currentCode) {
+        if (lastCheck <= 0 || updatePending || lastCheckCode != currentCode || now < lastCheck) return true;
+        return now - lastCheck >= AUTO_CHECK_INTERVAL_MS;
     }
 
     void check(boolean manual) {
@@ -111,7 +122,7 @@ final class UpdateManager {
             try {
                 Release release = fetchLatest();
                 SharedPreferences.Editor prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
-                prefs.putLong("lastCheck", System.currentTimeMillis());
+                prefs.putLong("lastCheck", System.currentTimeMillis()).putLong("lastCheckCode", BuildConfig.VERSION_CODE);
                 boolean newer = isNewer(release);
                 prefs.putBoolean("updatePending", newer).apply();
                 if (!newer) {
@@ -179,6 +190,7 @@ final class UpdateManager {
     /** Called from onResume: continues after the user came back from the "Install unknown apps" screen. */
     void onHostResumed(Activity activity) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        checkOnLaunch(); // also check when the user comes back to Framewise (throttled)
         if (!prefs.getBoolean("awaitingInstallPermission", false)) return;
         prefs.edit().putBoolean("awaitingInstallPermission", false).apply();
         if (activity.getPackageManager().canRequestPackageInstalls()) downloadAndInstall(activity);

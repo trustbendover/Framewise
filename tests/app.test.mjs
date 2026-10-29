@@ -187,3 +187,17 @@ test('Each analysed shot is saved locally and the next request carries a history
   assert.equal(contexts[1].history.shots, 1);
   assert.equal(contexts[1].history.typical.iso, 800);
 });
+
+test('Regression: an automatic "available" status shows the update popup without a manual check', () => {
+  const start = source.indexOf('function applyUpdateStatus(update){');
+  const end = source.indexOf('\n', start);
+  const nodes = new Map();
+  const node = id => { if (!nodes.has(id)) nodes.set(id, { id, hidden: true, textContent: '', disabled: false, replaceChildren() {}, append() {} }); return nodes.get(id); };
+  const env = { $: node, state: {}, renderNotes() {}, renderSections() {}, parseReleaseNotes: () => ({ bullets: [], extra: [] }), Array };
+  vm.createContext(env);
+  vm.runInContext(source.slice(start, end), env);
+  env.applyUpdateStatus({ state: 'available', message: 'Framewise 0.5.1 is available.', latestVersion: '0.5.1', currentVersion: '0.5.0', notes: '- fix' });
+  assert.equal(node('updateBanner').hidden, false);
+  assert.match(node('updateBannerText').textContent, /0\.5\.1/);
+  assert.equal(node('installUpdateButton').hidden, false);
+});
