@@ -1,13 +1,20 @@
 {
-  "version": "0.5.1",
-  "title": "What's new in Framewise 0.5.1",
+  "version": "0.5.2",
+  "title": "What's new in Framewise 0.5.2",
   "notes": [
-    "Setup → Live view now starts with a camera picker: Sony a6100 or Canon 2000D. You only see the steps for your camera.",
-    "Then pick how you connect. Sony: Wi-Fi or USB-C. Canon: USB-C or Wi-Fi (experimental). Framewise remembers your choice.",
-    "When a camera connects, Framewise selects it for you.",
-    "The copyright line moved to the bottom of the app, as small text under the Framewise name. It's still in Setup → About."
+    "Fixed: after tapping a button, a lit-up outline stayed around it until you tapped somewhere else. Buttons now just flash briefly when you press them.",
+    "Hover effects now only apply with a mouse, so nothing stays lit on a touch screen.",
+    "Fixed: the camera name in the top right now shows the camera you picked (Canon or Sony) instead of always saying Sony."
   ],
   "releases": [
+    {
+      "version": "0.5.2",
+      "notes": [
+        "Fixed: after tapping a button, a lit-up outline stayed around it until you tapped somewhere else. Buttons now just flash briefly when you press them.",
+        "Hover effects now only apply with a mouse, so nothing stays lit on a touch screen.",
+        "Fixed: the camera name in the top right now shows the camera you picked (Canon or Sony) instead of always saying Sony."
+      ]
+    },
     {
       "version": "0.5.1",
       "notes": [

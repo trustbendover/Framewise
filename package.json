@@ -1,6 +1,6 @@
 {
   "name": "framewise-photo-assistant",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "type": "module",
   "description": "Android Sony a6100 photo settings advisor with an optional local browser companion",
