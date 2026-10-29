@@ -1,11 +1,10 @@
 {
-  "version": "0.4",
-  "title": "What's new in Framewise 0.4",
+  "version": "0.4.1",
+  "title": "What's new in Framewise 0.4.1",
   "notes": [
-    "New History tab (Setup → History): every shot you analyse is saved with its camera settings and the AI tips.",
-    "Each AI reading now also gives your shot a score from 1 to 10.",
-    "Tips get more personal: Framewise tells the AI about your last 20 shots, like your usual settings and problems that keep coming back.",
-    "Your history stays on your phone. It is never uploaded on its own; only a short summary goes along with an AI request you start.",
-    "Tap Clear history at any time to delete it all."
+    "Reconnecting to the camera right after disconnecting is faster and more reliable.",
+    "Tapping \"Check for updates\" and \"Install update\" quickly no longer starts two downloads at once.",
+    "The History screen can no longer break because of an old or damaged saved entry.",
+    "Your shot history still stays on your phone only."
   ]
 }

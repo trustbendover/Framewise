@@ -41,3 +41,15 @@ test('Summary covers the last 20 shots with typical settings and recurring issue
   assert.equal(summarizeHistory([]), null);
   assert.ok(JSON.stringify(sum).length < 1500, 'summary stays compact for the prompt');
 });
+
+test('Regression: malformed stored entries are normalised instead of breaking the History screen', () => {
+  const s = storage();
+  s.setItem(HISTORY_KEY, JSON.stringify([{ at: 5, tips: 'not an array', settings: null, score: '9', summary: 42 }, null, 'x', { at: 'bad' }]));
+  const list = loadHistory(s);
+  assert.equal(list.length, 1);
+  assert.deepEqual(list[0].tips, []);
+  assert.equal(list[0].score, null);
+  assert.equal(list[0].summary, '');
+  assert.equal(list[0].settings.iso, null);
+  assert.ok(summarizeHistory(list));
+});

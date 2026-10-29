@@ -9,6 +9,7 @@ export function makeEntry({ at = Date.now(), input = {}, camera = null, scene = 
   const cam = camera || {};
   const cur = input.current || {};
   return {
+    v: 1,
     at,
     source: text(source, 20),
     settings: {
@@ -30,8 +31,17 @@ export function makeEntry({ at = Date.now(), input = {}, camera = null, scene = 
   };
 }
 
+// Older or hand-edited entries are upgraded in place (schema v1) instead of crashing the History screen.
+export function normalize(e) {
+  const st = e.settings && typeof e.settings === 'object' ? e.settings : {};
+  return { v: 1, at: e.at, source: text(e.source, 20), goal: text(e.goal, 20), summary: text(e.summary), focusAdvice: text(e.focusAdvice), lighting: text(e.lighting, 20),
+    tips: Array.isArray(e.tips) ? e.tips.filter(x => typeof x === 'string').slice(0, 6) : [],
+    score: Number.isInteger(e.score) && e.score >= 1 && e.score <= 10 ? e.score : null,
+    settings: { iso: num(st.iso), shutter: num(st.shutter), aperture: num(st.aperture), exposureCompensation: num(st.exposureCompensation), focalLength: num(st.focalLength), mode: text(st.mode, 40) || null, whiteBalance: text(st.whiteBalance, 40) || null, fromCamera: st.fromCamera === true } };
+}
+
 export function loadHistory(storage) {
-  try { const list = JSON.parse(storage.getItem(HISTORY_KEY) || '[]'); return Array.isArray(list) ? list.filter(e => e && Number.isFinite(e.at)) : []; }
+  try { const list = JSON.parse(storage.getItem(HISTORY_KEY) || '[]'); return Array.isArray(list) ? list.filter(e => e && typeof e === 'object' && Number.isFinite(e.at)).map(normalize) : []; }
   catch { return []; }
 }
 export function addEntry(storage, entry) {

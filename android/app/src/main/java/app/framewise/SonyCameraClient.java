@@ -77,6 +77,7 @@ final class SonyCameraClient {
     private String endpoint;
     private Thread liveview;
     private Thread events;
+    private HttpURLConnection liveConnection;
     private boolean ownsRequest;
 
     SonyCameraClient(Context context) {
@@ -272,6 +273,10 @@ final class SonyCameraClient {
         HttpURLConnection connection = null;
         try {
             connection = open(net, url, 8000);
+            synchronized (this) {
+                if (id != session.get()) return;
+                liveConnection = connection;
+            }
             if (connection.getResponseCode() != 200) throw new IOException("live view HTTP " + connection.getResponseCode());
             DataInputStream in = new DataInputStream(connection.getInputStream());
             update(id, "live", "Live view from the camera. Settings are read from the camera every second.");
@@ -515,6 +520,10 @@ final class SonyCameraClient {
                 });
             } catch (RuntimeException ignored) { release.run(); }
         } else release.run();
+        // Interrupting does not unblock a socket read: close the stream so the camera frees its single live-view slot now.
+        final HttpURLConnection live = liveConnection;
+        liveConnection = null;
+        if (live != null) new Thread(live::disconnect, "FramewiseLiveviewClose").start();
         if (liveview != null) liveview.interrupt();
         if (events != null) events.interrupt();
         liveview = null; events = null; network = null; endpoint = null;

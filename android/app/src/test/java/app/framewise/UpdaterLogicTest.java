@@ -13,6 +13,9 @@ public class UpdaterLogicTest {
         assertTrue(UpdateManager.compareVersions("0.2.0", "0.3.0") < 0);
         assertTrue(UpdateManager.compareVersions("1.0.0", "0.10.0") > 0);
         assertTrue(UpdateManager.compareVersions("0.10.0", "0.9.0") > 0);
+        // Regression: two-part tags (v0.4) must sort above three-part patch tags (0.3.2).
+        assertTrue(UpdateManager.compareVersions("v0.4", "0.3.2") > 0);
+        assertTrue(UpdateManager.compareVersions("0.4.1", "0.4") > 0);
     }
 
     @Test public void installedBuildMatchesGradleVersion() {

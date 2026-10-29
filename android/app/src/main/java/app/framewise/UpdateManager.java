@@ -60,8 +60,9 @@ final class UpdateManager {
     private static JSONObject lastStatus;
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private volatile boolean busy;
-    private Release available;
+    // Bridge calls arrive on the WebView JavaBridge thread and the UI thread: claim work atomically.
+    private final java.util.concurrent.atomic.AtomicBoolean busy = new java.util.concurrent.atomic.AtomicBoolean();
+    private volatile Release available;
     private File verifiedApk;
 
     private static final class Release {
@@ -101,8 +102,7 @@ final class UpdateManager {
     }
 
     void check(boolean manual) {
-        if (busy) return;
-        busy = true;
+        if (!busy.compareAndSet(false, true)) return;
         if (manual) publish("checking", "Checking GitHub for a newer Framewise…", null);
         executor.execute(() -> {
             try {
@@ -132,14 +132,14 @@ final class UpdateManager {
             } catch (JSONException | RuntimeException error) {
                 if (manual) publish("error", "GitHub's release information could not be read.", null);
             } finally {
-                busy = false;
+                busy.set(false);
             }
         });
     }
 
     /** Downloads, verifies and then installs. Call from the UI thread with the visible activity. */
     void downloadAndInstall(Activity activity) {
-        if (busy) return;
+        if (busy.get()) return;
         Release release = available;
         if (release == null) { check(true); return; }
         if (!activity.getPackageManager().canRequestPackageInstalls()) {
@@ -153,7 +153,7 @@ final class UpdateManager {
             }
             return;
         }
-        busy = true;
+        if (!busy.compareAndSet(false, true)) return;
         executor.execute(() -> {
             try {
                 File apk = download(release);
@@ -167,7 +167,7 @@ final class UpdateManager {
             } catch (RuntimeException error) {
                 publish("error", "The update could not be installed (" + error.getClass().getSimpleName() + ").", null);
             } finally {
-                busy = false;
+                busy.set(false);
             }
         });
     }
