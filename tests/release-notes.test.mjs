@@ -26,7 +26,7 @@ test('The in-app "What\'s new" card matches the release notes of this version', 
   const card = JSON.parse(await readFile(new URL('public/whats-new.json', root), 'utf8'));
   assert.equal(card.version, versionName);
   const notes = await readFile(new URL(`release-notes/${tag}.md`, root), 'utf8');
-  const bullets = notes.split('\n').filter(line => line.startsWith('- ')).map(line => line.slice(2).trim());
+  const bullets = notes.split(/^### Also in/m)[0].split('\n').filter(line => line.startsWith('- ')).map(line => line.slice(2).trim());
   assert.deepEqual(card.notes, bullets);
 });
 
@@ -60,4 +60,17 @@ test('Camera settings from getEvent fill in the manual fields once and invalidat
   fields.cameraAutofill.checked = false;
   assert.equal(env.applyCameraSettings({ iso: 1600 }), false);
   assert.equal(invalidations, 1);
+});
+
+test('The What\'s new card bundles every release-notes file (for users who skipped updates)', async () => {
+  const card = JSON.parse(await readFile(new URL('public/whats-new.json', root), 'utf8'));
+  const files = (await readdir(new URL('release-notes/', root))).filter(f => /^v.+\.md$/.test(f));
+  assert.equal(card.releases.length, files.length, 'run node scripts/build-whats-new.mjs');
+  for (const f of files) {
+    const v = f.slice(1, -3);
+    const entry = card.releases.find(r => r.version === v);
+    assert.ok(entry, v);
+    const notes = await readFile(new URL(`release-notes/${f}`, root), 'utf8');
+    assert.deepEqual(entry.notes, notes.split(/^### Also in/m)[0].split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2).trim()));
+  }
 });

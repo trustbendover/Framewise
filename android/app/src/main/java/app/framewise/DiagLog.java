@@ -156,7 +156,33 @@ final class DiagLog {
         } catch (JSONException ignored) { }
     }
 
-    private static void persist(String name, Deque<JSONObject> list) { write(name, new JSONArray(list).toString()); }
+    /** Normal log writes go to one background thread (in order); crash records are written synchronously. */
+    private static final java.util.concurrent.ExecutorService WRITER = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "FramewiseDiagWriter"); t.setDaemon(true); return t;
+    });
+
+    private static final java.util.concurrent.atomic.AtomicLong SEQ = new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.Map<String, Long> WRITTEN = new java.util.HashMap<>();
+
+    private static void persist(String name, Deque<JSONObject> list) {
+        final String text = new JSONArray(list).toString();
+        final long seq = SEQ.incrementAndGet();
+        Runnable job = () -> writeIfNewest(name, text, seq);
+        if (syncNext) { job.run(); return; }
+        try { WRITER.execute(job); } catch (java.util.concurrent.RejectedExecutionException e) { job.run(); }
+    }
+
+    /** Never lets an older queued snapshot overwrite a newer one (for example a crash record). */
+    static boolean writeIfNewest(String name, String text, long seq) {
+        synchronized (WRITE_LOCK) {
+            Long last = WRITTEN.get(name);
+            if (last != null && last > seq) return false;
+            WRITTEN.put(name, seq);
+            write(name, text);
+            return true;
+        }
+    }
+    private static final Object WRITE_LOCK = new Object();
 
     private static void load(String name, Deque<JSONObject> into, int max) {
         String text = read(name);

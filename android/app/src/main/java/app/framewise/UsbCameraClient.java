@@ -31,6 +31,8 @@ final class UsbCameraClient extends CameraFeed {
 
     // Guarded by this.
     private boolean wanted;
+    /** One Android permission dialog at a time (attach events and taps must not stack dialogs). */
+    private boolean permissionPending;
     private Thread worker;
     private UsbDeviceConnection openConnection;
 
@@ -122,6 +124,8 @@ final class UsbCameraClient extends CameraFeed {
         }
         vendor = vendorName(device.getVendorId());
         if (!usb.hasPermission(device)) {
+            if (permissionPending) return;
+            permissionPending = true;
             state = "connecting"; step = "Android will ask to allow Framewise to use the " + vendor + " camera. Tap OK.";
             Intent intent = new Intent(ACTION_PERMISSION).setPackage(context.getPackageName());
             int flags = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
@@ -140,6 +144,7 @@ final class UsbCameraClient extends CameraFeed {
         UsbDevice device = Build.VERSION.SDK_INT >= 33 ? intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice.class) : intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
         synchronized (this) {
             if (ACTION_PERMISSION.equals(action)) {
+                permissionPending = false;
                 if (!wanted) return;
                 if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) tryStart();
                 else setError("USB permission was denied. Tap Connect over USB-C again and choose OK.");

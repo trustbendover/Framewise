@@ -14,3 +14,4 @@
 .report-preview{max-height:40vh;overflow:auto;font-size:9px;background:#10140e;padding:10px;border-radius:8px;white-space:pre-wrap;word-break:break-all;color:#c6cdbb}
 .brand-copy{display:block;font-size:7px;letter-spacing:.3px;color:var(--muted);font-weight:400;margin-top:1px}.copyright{font-size:11px!important;color:var(--muted)!important}.credits{font-size:11px;color:#bac4ad;padding-left:18px;line-height:1.7}
 .setup-tabs{flex-wrap:wrap}.setup-tab{flex:1 0 auto}
+.notes-version{font-weight:600;color:var(--lime);list-style:none;margin:10px 0 2px -14px;font-size:11px}

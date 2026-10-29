@@ -48,7 +48,7 @@ final class UpdateManager {
     interface Listener { void onUpdateStatus(JSONObject status); }
 
     static final String ACTION_INSTALL_STATUS = "app.framewise.UPDATE_INSTALL_STATUS";
-    private static final String API = "https://api.github.com/repos/" + BuildConfig.UPDATE_REPO + "/releases/latest";
+    private static final String API = "https://api.github.com/repos/" + BuildConfig.UPDATE_REPO + "/releases?per_page=30";
     private static final String PREFS = "framewise.updates";
     private static final long AUTO_CHECK_INTERVAL_MS = 6L * 60 * 60 * 1000;
     private static final long MAX_APK_BYTES = 200L * 1024 * 1024;
@@ -65,8 +65,10 @@ final class UpdateManager {
     private volatile Release available;
     private File verifiedApk;
 
-    private static final class Release {
+    static final class Release {
         String tag, versionName, notes, pageUrl, apkUrl, apkName, shaUrl;
+        /** Notes of every published release newer than the installed app, newest first. */
+        JSONArray notesByVersion = new JSONArray();
         long versionCode, apkSize;
     }
 
@@ -105,7 +107,7 @@ final class UpdateManager {
     void check(boolean manual) {
         if (!busy.compareAndSet(false, true)) return;
         if (manual) publish("checking", "Checking GitHub for a newer Framewise…", null);
-        executor.execute(() -> {
+        try { executor.execute(() -> {
             try {
                 Release release = fetchLatest();
                 SharedPreferences.Editor prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
@@ -125,6 +127,7 @@ final class UpdateManager {
                 JSONObject extra = new JSONObject();
                 extra.put("latestVersion", release.versionName);
                 extra.put("notes", release.notes == null ? "" : release.notes);
+                extra.put("notesByVersion", release.notesByVersion);
                 extra.put("url", release.pageUrl == null ? "" : release.pageUrl);
                 extra.put("size", release.apkSize);
                 publish("available", "Framewise " + release.versionName + " is available.", extra);
@@ -135,7 +138,7 @@ final class UpdateManager {
             } finally {
                 busy.set(false);
             }
-        });
+        }); } catch (java.util.concurrent.RejectedExecutionException closed) { busy.set(false); }
     }
 
     /** Downloads, verifies and then installs. Call from the UI thread with the visible activity. */
@@ -155,7 +158,7 @@ final class UpdateManager {
             return;
         }
         if (!busy.compareAndSet(false, true)) return;
-        executor.execute(() -> {
+        try { executor.execute(() -> {
             try {
                 File apk = download(release);
                 verifiedApk = apk;
@@ -170,7 +173,7 @@ final class UpdateManager {
             } finally {
                 busy.set(false);
             }
-        });
+        }); } catch (java.util.concurrent.RejectedExecutionException closed) { busy.set(false); }
     }
 
     /** Called from onResume: continues after the user came back from the "Install unknown apps" screen. */
@@ -185,7 +188,37 @@ final class UpdateManager {
     void close() { executor.shutdownNow(); }
 
     private Release fetchLatest() throws IOException, JSONException {
-        JSONObject json = new JSONObject(new String(get(API, 512 * 1024, "application/vnd.github+json"), StandardCharsets.UTF_8));
+        JSONArray list = new JSONArray(new String(get(API, 2 * 1024 * 1024, "application/vnd.github+json"), StandardCharsets.UTF_8));
+        return pickNewest(list, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME);
+    }
+
+    /**
+     * From GitHub's releases list: the newest published release (drafts and pre-releases skipped),
+     * with the notes of every release newer than the installed one so skipped updates are shown too.
+     */
+    static Release pickNewest(JSONArray list, long installedCode, String installedName) throws JSONException {
+        java.util.List<Release> newer = new java.util.ArrayList<>();
+        Release best = null;
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject json = list.optJSONObject(i);
+            if (json == null || json.optBoolean("draft") || json.optBoolean("prerelease")) continue;
+            Release r = parseRelease(json);
+            if (r.tag.isEmpty()) continue;
+            if (best == null || newerThan(r, best)) best = r;
+            if (isNewer(r, installedCode, installedName)) newer.add(r);
+        }
+        if (best == null) throw new JSONException("no published releases");
+        newer.sort((a, b) -> newerThan(a, b) ? -1 : newerThan(b, a) ? 1 : 0);
+        for (Release r : newer) best.notesByVersion.put(new JSONObject().put("version", r.versionName).put("notes", r.notes == null ? "" : r.notes));
+        return best;
+    }
+
+    private static boolean newerThan(Release a, Release b) {
+        if (a.versionCode > 0 && b.versionCode > 0 && a.versionCode != b.versionCode) return a.versionCode > b.versionCode;
+        return compareVersions(a.versionName, b.versionName) > 0;
+    }
+
+    static Release parseRelease(JSONObject json) throws JSONException {
         Release release = new Release();
         release.tag = json.optString("tag_name", "");
         release.versionName = release.tag.replaceFirst("^[vV]", "");
@@ -219,9 +252,11 @@ final class UpdateManager {
         return release;
     }
 
-    private static boolean isNewer(Release release) {
-        if (release.versionCode > 0) return release.versionCode > BuildConfig.VERSION_CODE;
-        return compareVersions(release.versionName, BuildConfig.VERSION_NAME) > 0;
+    private static boolean isNewer(Release release) { return isNewer(release, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME); }
+
+    static boolean isNewer(Release release, long installedCode, String installedName) {
+        if (release.versionCode > 0) return release.versionCode > installedCode;
+        return compareVersions(release.versionName, installedName) > 0;
     }
 
     static int compareVersions(String a, String b) {

@@ -17,6 +17,7 @@ const FILES = new Map([
   ['/engine.mjs', ['engine.mjs', 'text/javascript; charset=utf-8']],
   ['/history.mjs', ['history.mjs', 'text/javascript; charset=utf-8']],
   ['/report.mjs', ['report.mjs', 'text/javascript; charset=utf-8']],
+  ['/notes.mjs', ['notes.mjs', 'text/javascript; charset=utf-8']],
   ['/demo.svg', ['demo.svg', 'image/svg+xml']],
   ['/whats-new.json', ['whats-new.json', 'application/json; charset=utf-8']],
 ]);
