@@ -1,10 +1,11 @@
 {
-  "version": "0.3.2",
-  "title": "What's new in Framewise 0.3.2",
+  "version": "0.4",
+  "title": "What's new in Framewise 0.4",
   "notes": [
-    "Cleaned up: the old \"share the Sony app's screen\" option is gone. It kept disconnecting, and the direct Wi-Fi live view works much better.",
-    "Framewise no longer asks for screen sharing, notification or \"display over other apps\" permissions.",
-    "Live view over the camera's own Wi-Fi works exactly as before.",
-    "A USB-C cable connection is on the way in 0.4 as a backup option."
+    "New History tab (Setup → History): every shot you analyse is saved with its camera settings and the AI tips.",
+    "Each AI reading now also gives your shot a score from 1 to 10.",
+    "Tips get more personal: Framewise tells the AI about your last 20 shots, like your usual settings and problems that keep coming back.",
+    "Your history stays on your phone. It is never uploaded on its own; only a short summary goes along with an AI request you start.",
+    "Tap Clear history at any time to delete it all."
   ]
 }

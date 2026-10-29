@@ -139,6 +139,7 @@ node --test tests/*.test.mjs
 
 ## Architecture
 
+- `public/history.mjs`: on-device shot history (WebView storage, max 200 shots), compact last-20 summary added to AI requests, Setup → History with Clear history.
 - `public/engine.mjs`: deterministic exposure/constraint kernel; no DOM, network or image-based light metering.
 - `public/app.js`, `index.html`, `styles.css`: bundled responsive UI and manual decision workflow.
 - `android/.../MainActivity.java`: allowlisted asset WebView and narrow native bridge.

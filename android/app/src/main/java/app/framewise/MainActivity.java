@@ -47,6 +47,7 @@ public final class MainActivity extends Activity {
         paths.put("/assets/app.js", "text/javascript");
         paths.put("/assets/styles.css", "text/css");
         paths.put("/assets/engine.mjs", "text/javascript");
+        paths.put("/assets/history.mjs", "text/javascript");
         paths.put("/assets/demo.svg", "image/svg+xml");
         paths.put("/assets/whats-new.json", "application/json");
         ASSETS = Collections.unmodifiableMap(paths);

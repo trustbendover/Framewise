@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { recommend, formatShutter } from '../public/engine.mjs';
+import * as history from '../public/history.mjs';
 
 // Exercise the actual app event paths with a tiny DOM adapter. Camera hardware,
 // drawing, Android permission prompts, and real network calls remain device QA.
@@ -27,6 +28,8 @@ function camera(overrides = {}) {
     meteringEV: 0, exposureBias: 0, ...overrides };
 }
 
+function memoryStorage() { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k) }; }
+
 function harness(input = camera()) {
   const nodes = new Map();
   const selected = ['shutter', 'aperture', 'iso'].map(key => ({ dataset: { setting: key }, checked: true }));
@@ -50,7 +53,7 @@ function harness(input = camera()) {
     Option: class { constructor(text, value) { this.text = text; this.value = value; } },
     getInput: () => input, canAnalyze() {}, status() {}, toast() {}, stopLiveAI() {},
     renderLog() {}, updateSourceLabels() {}, drawSource() {}, native: false,
-    localStorage: { setItem() {} },
+    localStorage: memoryStorage(), ...history, renderHistory() {},
     invalidate() { state.revision++; state.rec = null; },
     scrollSuggestions() { env.scrolls++; }, scrolls: 0,
     renderRecommendation(rec) { state.rec = rec; env.renders++; }, renders: 0,
@@ -109,14 +112,14 @@ test('A live video source hidden while AI is running cannot render a live readin
   assert.equal(h.env.renders, 0);
 });
 
-test('A kept Sony frame still renders when Sony is hidden behind Framewise', async () => {
+test('A camera frame still renders when the app view is hidden', async () => {
   const h = harness(); let resolve;
-  h.state.source = 'sony';
+  h.state.source = 'camera';
   h.env.requestAnalysis = () => new Promise(done => { resolve = done; });
   h.run(runAI);
   const pending = h.env.runAI();
   h.state.visible = false;
-  resolve({ summary: 'Kept Sony frame.', observations: [], limitations: [] });
+  resolve({ summary: 'Camera frame.', observations: [], limitations: [] });
   await pending;
   assert.equal(h.env.renders, 1);
 });
@@ -166,4 +169,21 @@ test('Stopping capture stops tracks, invalidates the live plan, and labels a sti
   assert.equal(h.state.sourceGeneration, 1);
   assert.equal(h.state.rec, null);
   assert.equal(h.state.video, null);
+});
+
+test('Each analysed shot is saved locally and the next request carries a history summary', async () => {
+  const h = harness(); const contexts = [];
+  h.env.requestAnalysis = async (image, context) => { contexts.push(context); return { summary: 'Slight motion blur on the subject.', observations: ['Hold steadier or use a faster shutter.'], limitations: [], score: 6 }; };
+  h.state.source = 'camera'; h.state.cameraSettings = { iso: 800, shutter: 1 / 125, aperture: 4, exposureCompensation: -0.3, mode: 'Manual Exposure' }; h.state.cameraSettingsAt = Date.now();
+  h.run(runAI);
+  await h.env.runAI();
+  assert.equal(contexts[0].history, null);
+  const saved = history.loadHistory(h.env.localStorage);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].settings.iso, 800);
+  assert.equal(saved[0].settings.fromCamera, true);
+  assert.equal(saved[0].score, 6);
+  await h.env.runAI(true);
+  assert.equal(contexts[1].history.shots, 1);
+  assert.equal(contexts[1].history.typical.iso, 800);
 });
