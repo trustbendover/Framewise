@@ -201,3 +201,40 @@ test('Regression: an automatic "available" status shows the update popup without
   assert.match(node('updateBannerText').textContent, /0\.5\.1/);
   assert.equal(node('installUpdateButton').hidden, false);
 });
+
+test('Camera picker shows only the chosen camera and its connection options', () => {
+  const start = source.indexOf('function kindsFor(body)');
+  const end = source.indexOf('\nfunction chooseBody', start);
+  const els = [];
+  const mk = (attrs) => { const e = { hidden: false, dataset: attrs, classList: { toggle(c, on) { e.selected = on; } }, setAttribute() {} }; els.push(e); return e; };
+  const sonyWifi = mk({ kind: 'sony-wifi' }), usb = mk({ kind: 'usb' }), canonWifi = mk({ kind: 'canon-wifi' });
+  const sonySteps = mk({ bodyOnly: 'Sony a6100' }), canonSteps = mk({ bodyOnly: 'Canon EOS 2000D' });
+  const segSony = mk({ body: 'Sony a6100' }), segCanon = mk({ body: 'Canon EOS 2000D' });
+  const opts = ['sony-wifi', 'usb', 'canon-wifi'].map(value => ({ value, hidden: false, disabled: false }));
+  const sel = { value: 'sony-wifi', options: opts };
+  const body = { value: 'Sony a6100' };
+  const stored = {};
+  const env = { $: id => id === 'cameraBody' ? body : id === 'cameraKind' ? sel : null,
+    document: { querySelectorAll: q => q === '[data-kind]' ? [sonyWifi, usb, canonWifi] : q === '[data-body-only]' ? [sonySteps, canonSteps] : [segSony, segCanon] },
+    localStorage: { setItem: (k, v) => { stored[k] = v; } } };
+  vm.createContext(env);
+  vm.runInContext(source.slice(start, end), env);
+  env.showKind();
+  assert.equal(sonyWifi.hidden, false); assert.equal(usb.hidden, true); assert.equal(canonWifi.hidden, true);
+  assert.equal(opts[2].hidden, true); assert.equal(segSony.selected, true);
+  body.value = 'Canon EOS 2000D'; env.showKind();
+  assert.equal(sel.value, 'usb', 'Canon has no Sony Wi-Fi: falls back to USB-C');
+  assert.equal(sonyWifi.hidden, true); assert.equal(usb.hidden, false);
+  assert.equal(sonySteps.hidden, true); assert.equal(canonSteps.hidden, false);
+  assert.equal(opts[0].hidden, true); assert.equal(opts[2].hidden, false);
+  assert.equal(stored['framewise.cameraKind'], 'usb');
+  assert.deepEqual([...env.kindsFor('Sony a6100')], ['sony-wifi', 'usb']);
+});
+
+test('Copyright sits under the bottom framewise word, not in the header', async () => {
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  assert.doesNotMatch(header, /errevsPhotography/);
+  assert.match(html, /<footer><div class="footer-brand"><span>framewise<\/span><small class="app-copyright">© 2026 errevsPhotography\. All rights reserved\.<\/small>/);
+  assert.match(html, /data-panel="about"[\s\S]*errevsPhotography/);
+});

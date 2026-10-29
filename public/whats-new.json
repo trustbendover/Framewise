@@ -1,16 +1,22 @@
 {
-  "version": "0.5.0",
-  "title": "What's new in Framewise 0.5",
+  "version": "0.5.1",
+  "title": "What's new in Framewise 0.5.1",
   "notes": [
-    "New: connect with a USB-C cable to a Sony a6100 or Canon EOS 2000D. This is experimental and not tested on a real camera yet.",
-    "New: Canon EOS 2000D live view over the camera's own Wi-Fi. Also experimental and untested. The steps are in Setup → Live view.",
-    "Pick your connection in Setup → Live view: Sony Wi-Fi, USB-C cable or Canon Wi-Fi. Unplug and replug the cable and Framewise reconnects.",
-    "New Report tab: tap Send test report to share what happened through email, WhatsApp or any app. Your API key and passwords are never included.",
-    "After a crash or error, Framewise offers to send a report the next time it opens. You can switch this off.",
-    "Fixed: the \"update available\" message shows up by itself again when you open Framewise or come back to it.",
-    "New About tab with credits. © 2026 errevsPhotography. All rights reserved."
+    "Setup → Live view now starts with a camera picker: Sony a6100 or Canon 2000D. You only see the steps for your camera.",
+    "Then pick how you connect. Sony: Wi-Fi or USB-C. Canon: USB-C or Wi-Fi (experimental). Framewise remembers your choice.",
+    "When a camera connects, Framewise selects it for you.",
+    "The copyright line moved to the bottom of the app, as small text under the Framewise name. It's still in Setup → About."
   ],
   "releases": [
+    {
+      "version": "0.5.1",
+      "notes": [
+        "Setup → Live view now starts with a camera picker: Sony a6100 or Canon 2000D. You only see the steps for your camera.",
+        "Then pick how you connect. Sony: Wi-Fi or USB-C. Canon: USB-C or Wi-Fi (experimental). Framewise remembers your choice.",
+        "When a camera connects, Framewise selects it for you.",
+        "The copyright line moved to the bottom of the app, as small text under the Framewise name. It's still in Setup → About."
+      ]
+    },
     {
       "version": "0.5",
       "notes": [
