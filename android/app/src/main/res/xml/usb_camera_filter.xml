@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Sony (0x054C = 1356) and Canon (0x04A9 = 1193) cameras. -->
+    <usb-device vendor-id="1356" />
+    <usb-device vendor-id="1193" />
+</resources>

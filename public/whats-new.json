@@ -1,10 +1,12 @@
 {
-  "version": "0.4.1",
-  "title": "What's new in Framewise 0.4.1",
+  "version": "0.5.0",
+  "title": "What's new in Framewise 0.5.0",
   "notes": [
-    "Reconnecting to the camera right after disconnecting is faster and more reliable.",
-    "Tapping \"Check for updates\" and \"Install update\" quickly no longer starts two downloads at once.",
-    "The History screen can no longer break because of an old or damaged saved entry.",
-    "Your shot history still stays on your phone only."
+    "New: connect with a USB-C cable to a Sony a6100 or Canon EOS 2000D. This is experimental and not tested on a real camera yet.",
+    "New: Canon EOS 2000D live view over the camera's own Wi-Fi. Also experimental and untested. The steps are in Setup → Live view.",
+    "Pick your connection in Setup → Live view: Sony Wi-Fi, USB-C cable or Canon Wi-Fi. Unplug and replug the cable and Framewise reconnects.",
+    "New Report tab: tap Send test report to share what happened through email, WhatsApp or any app. Your API key and passwords are never included.",
+    "After a crash or error, Framewise offers to send a report the next time it opens. You can switch this off.",
+    "New About tab with credits. © 2026 errevsPhotography. All rights reserved."
   ]
 }

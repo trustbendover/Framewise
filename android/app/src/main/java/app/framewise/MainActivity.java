@@ -48,6 +48,7 @@ public final class MainActivity extends Activity {
         paths.put("/assets/styles.css", "text/css");
         paths.put("/assets/engine.mjs", "text/javascript");
         paths.put("/assets/history.mjs", "text/javascript");
+        paths.put("/assets/report.mjs", "text/javascript");
         paths.put("/assets/demo.svg", "image/svg+xml");
         paths.put("/assets/whats-new.json", "application/json");
         ASSETS = Collections.unmodifiableMap(paths);
@@ -57,6 +58,10 @@ public final class MainActivity extends Activity {
     private boolean requestingPhoto;
     private UpdateManager updates;
     private SonyCameraClient camera;
+    private UsbCameraClient usbCamera;
+    private CanonWifiClient canonWifi;
+    /** Which connection the bridge reports: "wifi" (Sony), "usb" or "canon-wifi". */
+    private volatile String activeCamera = "wifi";
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService photoExecutor = Executors.newSingleThreadExecutor();
 
@@ -65,6 +70,8 @@ public final class MainActivity extends Activity {
     @android.annotation.SuppressLint("SetJavaScriptEnabled")
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        DiagLog.init(this, "");
+        DiagLog.installCrashHandler();
         getWindow().setStatusBarColor(0xff11130f);
         getWindow().setNavigationBarColor(0xff11130f);
         aiClient = new AiClient(this);
@@ -134,6 +141,11 @@ public final class MainActivity extends Activity {
         }
         webView.loadUrl("https://" + APP_HOST + "/assets/index.html");
         camera = new SonyCameraClient(this);
+        DiagLog.setCameraPassword(camera.savedPassword());
+        DiagLog.event("app", "started " + BuildConfig.VERSION_NAME + " on Android " + Build.VERSION.RELEASE);
+        usbCamera = new UsbCameraClient(this);
+        canonWifi = new CanonWifiClient(this);
+        handleUsbIntent(getIntent());
         updates = new UpdateManager(this);
         UpdateManager.setListener(status -> publishScript("if(typeof window.onUpdateStatus==='function'){window.onUpdateStatus("
             + JSONObject.quote(status.toString()) + ");}"));
@@ -182,11 +194,64 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void stopOtherCameras(String keep) {
+        if (!"wifi".equals(keep) && camera != null) camera.disconnect();
+        if (!"usb".equals(keep) && usbCamera != null) usbCamera.disconnect();
+        if (!"canon-wifi".equals(keep) && canonWifi != null) canonWifi.disconnect();
+    }
+
+    /** Writes the (already redacted) report to app cache and opens Android's share sheet. */
+    private void shareReportFile(String reportJson, String summary) {
+        try {
+            java.io.File dir = ReportProvider.reportDir(this);
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("no cache folder");
+            java.io.File[] old = dir.listFiles();
+            if (old != null) for (java.io.File f : old) //noinspection ResultOfMethodCallIgnored
+                f.delete();
+            String name = "framewise-report-" + System.currentTimeMillis() + ".json";
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(dir, name))) {
+                out.write(DiagLog.redact(reportJson).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            Uri uri = Uri.parse("content://" + getPackageName() + ReportProvider.AUTHORITY_SUFFIX + "/" + name);
+            Intent send = new Intent(Intent.ACTION_SEND)
+                .setType("application/json")
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .putExtra(Intent.EXTRA_SUBJECT, "Framewise " + BuildConfig.VERSION_NAME + " test report")
+                .putExtra(Intent.EXTRA_TEXT, DiagLog.redact(summary))
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            send.setClipData(ClipData.newRawUri(name, uri));
+            startActivity(Intent.createChooser(send, "Send Framewise test report"));
+            DiagLog.markReported();
+            DiagLog.event("report", "report shared (" + reportJson.length() + " chars)");
+        } catch (IOException | RuntimeException error) {
+            DiagLog.error("report", "could not share report: " + error);
+            publishScript("if(typeof window.onReportError==='function'){window.onReportError(" + JSONObject.quote(String.valueOf(error.getMessage())) + ");}");
+        }
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleUsbIntent(intent);
+    }
+
+    /** Android opened Framewise because a Sony or Canon camera was plugged in: connect over USB. */
+    private void handleUsbIntent(Intent intent) {
+        if (intent == null || !android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction()) || usbCamera == null) return;
+        DiagLog.event("usb", "opened by camera plug-in");
+        if (camera != null) camera.disconnect();
+        if (canonWifi != null) canonWifi.disconnect();
+        activeCamera = "usb";
+        usbCamera.connect();
+    }
+
     @Override protected void onDestroy() {
         photoExecutor.shutdownNow();
         if (aiClient != null) { aiClient.close(); aiClient = null; }
         UpdateManager.setListener(null);
         if (camera != null) { camera.close(); camera = null; }
+        if (usbCamera != null) { usbCamera.close(); usbCamera = null; }
+        if (canonWifi != null) { canonWifi.close(); canonWifi = null; }
         if (updates != null) { updates.close(); updates = null; }
         mainHandler.removeCallbacksAndMessages(null);
         if (webView != null) {
@@ -208,18 +273,63 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (camera == null) return;
                 String key = password == null || password.trim().isEmpty() ? camera.savedPassword() : password;
+                DiagLog.setCameraPassword(key);
+                stopOtherCameras("wifi");
+                activeCamera = "wifi";
+                DiagLog.setCamera("wifi", "Sony (Wi-Fi)");
                 camera.connect(ssid, key, remember);
             });
         }
 
-        @JavascriptInterface public void cameraDisconnect() { runOnUiThread(() -> { if (camera != null) camera.disconnect(); }); }
+        /** USB-C cable to a Sony (PC Remote) or Canon EOS camera; vendor is detected automatically. EXPERIMENTAL. */
+        @JavascriptInterface public void cameraConnectUsb() {
+            runOnUiThread(() -> { if (usbCamera == null) return; stopOtherCameras("usb"); activeCamera = "usb"; usbCamera.connect(); });
+        }
+
+        /** Canon EOS over the camera's own Wi-Fi (PTP/IP). manualIp may be empty. EXPERIMENTAL. */
+        @JavascriptInterface public void cameraConnectCanonWifi(String manualIp) {
+            runOnUiThread(() -> { if (canonWifi == null) return; stopOtherCameras("canon-wifi"); activeCamera = "canon-wifi"; canonWifi.connect(manualIp); });
+        }
+
+        @JavascriptInterface public void cameraDisconnect() { runOnUiThread(() -> stopOtherCameras("")); }
 
         @JavascriptInterface public String cameraStatus(String sinceFrame) {
-            if (camera == null) return "{\"state\":\"idle\"}";
             long since;
             try { since = Long.parseLong(sinceFrame); } catch (NumberFormatException e) { since = 0; }
+            String active = activeCamera;
+            CameraFeed feed = "usb".equals(active) ? usbCamera : "canon-wifi".equals(active) ? canonWifi : null;
+            if (feed != null) return feed.status(since).toString();
+            if (camera == null) return "{\"state\":\"idle\"}";
             return camera.status(since).toString();
         }
+
+        // ---- Diagnostics / test reports (stay on the phone until the user shares them)
+        @JavascriptInterface public void logError(String area, String message) {
+            if (message == null) return;
+            DiagLog.error(area == null || area.length() > 20 ? "js" : area, message.length() > 2000 ? message.substring(0, 2000) : message);
+        }
+
+        @JavascriptInterface public void logEvent(String area, String message) {
+            if (message == null) return;
+            DiagLog.event(area == null || area.length() > 20 ? "js" : area, message.length() > 500 ? message.substring(0, 500) : message);
+        }
+
+        @JavascriptInterface public String reportStatus() {
+            JSONObject r = new JSONObject();
+            try { r.put("unreported", DiagLog.hasUnreported()).put("crashed", DiagLog.crashedLastTime()); } catch (JSONException ignored) { }
+            return r.toString();
+        }
+
+        @JavascriptInterface public String nativeReport() {
+            try { return DiagLog.nativeReport().toString(); } catch (JSONException e) { return "{}"; }
+        }
+
+        @JavascriptInterface public void shareReport(String reportJson, String summary) {
+            if (reportJson == null || reportJson.length() > 3_000_000) return;
+            runOnUiThread(() -> shareReportFile(reportJson, summary == null ? "" : summary));
+        }
+
+        @JavascriptInterface public void clearDiagnostics() { DiagLog.clear(); }
 
         @JavascriptInterface public String cameraSaved() { return camera == null ? "{}" : camera.saved().toString(); }
 
@@ -312,7 +422,7 @@ public final class MainActivity extends Activity {
             if (aiClient == null) { publishAnalysis(requestId, null, "The app is closing. Try again after reopening it."); return; }
             aiClient.analyze(image, context, new AiClient.Callback() {
                 @Override public void onResult(JSONObject scene) { publishAnalysis(requestId, scene, null); }
-                @Override public void onError(String message) { publishAnalysis(requestId, null, message); }
+                @Override public void onError(String message) { DiagLog.error("ai", message); publishAnalysis(requestId, null, message); }
             });
         }
     }

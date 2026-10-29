@@ -85,6 +85,7 @@ final class UpdateManager {
             status.put("currentVersion", BuildConfig.VERSION_NAME);
             status.put("currentCode", BuildConfig.VERSION_CODE);
         } catch (JSONException ignored) { }
+        if ("error".equals(state)) DiagLog.error("updater", message);
         lastStatus = status;
         if (listener != null) listener.onUpdateStatus(status);
     }

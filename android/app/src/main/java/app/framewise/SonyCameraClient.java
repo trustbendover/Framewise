@@ -250,7 +250,7 @@ final class SonyCameraClient {
             if (!location.startsWith("http://" + CAMERA_IP)) return null;
             String xml = new String(httpGet(net, location, 256 * 1024), StandardCharsets.UTF_8);
             Matcher name = MODEL.matcher(xml);
-            if (name.find()) synchronized (this) { model = name.group(1).trim(); }
+            if (name.find()) synchronized (this) { model = name.group(1).trim(); DiagLog.setCamera("wifi", model); }
             Matcher service = SERVICE.matcher(xml);
             while (service.find()) {
                 if ("camera".equals(service.group(1)) && service.group(2).startsWith("http://" + CAMERA_IP)) return service.group(2) + "/camera";
@@ -533,6 +533,7 @@ final class SonyCameraClient {
 
     private synchronized void update(int id, String newState, String message) {
         if (id != session.get()) return;
+        if (!message.equals(step)) DiagLog.event("wifi", newState + ": " + message);
         state = newState; step = message; error = null;
     }
 
@@ -541,6 +542,7 @@ final class SonyCameraClient {
             if (id != session.get()) return;
             disconnectLocked(false);
             state = "error"; step = message; error = message;
+            DiagLog.error("wifi", message);
         }
     }
 

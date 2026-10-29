@@ -162,3 +162,9 @@ node --test tests/*.test.mjs
 - [Gemini model capabilities](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite)
 - [Gemini pricing and free tier](https://ai.google.dev/gemini-api/docs/pricing)
 - [Gemini active rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+
+## Copyright
+
+© 2026 errevsPhotography. All rights reserved.
+
+Third-party components keep their own licenses; see [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt).
