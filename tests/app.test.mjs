@@ -238,3 +238,26 @@ test('Copyright sits under the bottom framewise word, not in the header', async 
   assert.match(html, /<footer><div class="footer-brand"><span>framewise<\/span><small class="app-copyright">© 2026 errevsPhotography\. All rights reserved\.<\/small>/);
   assert.match(html, /data-panel="about"[\s\S]*errevsPhotography/);
 });
+
+test('Pro Camera shell: four tabs, kept IDs, footer and bundled fonts are served', async () => {
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
+  const main = await readFile(new URL('../android/app/src/main/java/app/framewise/MainActivity.java', import.meta.url), 'utf8');
+  for (const v of ['live', 'coach', 'history', 'setup']) {
+    assert.match(html, new RegExp(`class="tab[^"]*" data-view="${v}"`));
+    assert.match(html, new RegExp(`data-view-name="${v}"`));
+  }
+  for (const id of ['previewCanvas', 'analyzeButton', 'suggestButton', 'cameraChip', 'exposureStrip', 'coachPill', 'scoreValue', 'historyList', 'setupDialog', 'cameraBody', 'cameraKind', 'sendReportButton', 'checkUpdateButton', 'whatsNewDialog', 'reportDialog'])
+    assert.match(html, new RegExp(`id="${id}"`), id);
+  assert.match(html, /<span>framewise<\/span><small class="app-copyright">© 2026 errevsPhotography/);
+  assert.match(html, /Frame it\. Tune it\. Own it\./);
+  assert.doesNotMatch(html, /Apply on camera|fonts\.googleapis|https:\/\/[^"]*\.woff2/);
+  for (const m of css.matchAll(/url\((fonts\/[^)]+\.woff2)\)/g)) {
+    await readFile(new URL('../public/' + m[1], import.meta.url));
+    assert.ok(server.includes(`'/${m[1]}'`), 'server serves ' + m[1]);
+    assert.ok(main.includes(`"/assets/${m[1]}"`), 'Android serves ' + m[1]);
+  }
+  // History panel must not be a setup [data-panel] (openSetup hides those)
+  assert.doesNotMatch(html, /data-panel="history"/);
+});

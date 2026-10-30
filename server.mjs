@@ -20,6 +20,13 @@ const FILES = new Map([
   ['/notes.mjs', ['notes.mjs', 'text/javascript; charset=utf-8']],
   ['/demo.svg', ['demo.svg', 'image/svg+xml']],
   ['/whats-new.json', ['whats-new.json', 'application/json; charset=utf-8']],
+  ['/fonts/Inter-400.woff2', ['fonts/Inter-400.woff2', 'font/woff2']],
+  ['/fonts/Inter-500.woff2', ['fonts/Inter-500.woff2', 'font/woff2']],
+  ['/fonts/Inter-600.woff2', ['fonts/Inter-600.woff2', 'font/woff2']],
+  ['/fonts/Inter-700.woff2', ['fonts/Inter-700.woff2', 'font/woff2']],
+  ['/fonts/SpaceGrotesk-500.woff2', ['fonts/SpaceGrotesk-500.woff2', 'font/woff2']],
+  ['/fonts/SpaceGrotesk-600.woff2', ['fonts/SpaceGrotesk-600.woff2', 'font/woff2']],
+  ['/fonts/SpaceGrotesk-700.woff2', ['fonts/SpaceGrotesk-700.woff2', 'font/woff2']],
 ]);
 
 export const SCENE_SCHEMA = {

@@ -52,6 +52,13 @@ public final class MainActivity extends Activity {
         paths.put("/assets/notes.mjs", "text/javascript");
         paths.put("/assets/demo.svg", "image/svg+xml");
         paths.put("/assets/whats-new.json", "application/json");
+        paths.put("/assets/fonts/Inter-400.woff2", "font/woff2");
+        paths.put("/assets/fonts/Inter-500.woff2", "font/woff2");
+        paths.put("/assets/fonts/Inter-600.woff2", "font/woff2");
+        paths.put("/assets/fonts/Inter-700.woff2", "font/woff2");
+        paths.put("/assets/fonts/SpaceGrotesk-500.woff2", "font/woff2");
+        paths.put("/assets/fonts/SpaceGrotesk-600.woff2", "font/woff2");
+        paths.put("/assets/fonts/SpaceGrotesk-700.woff2", "font/woff2");
         ASSETS = Collections.unmodifiableMap(paths);
     }
     private WebView webView;
@@ -99,7 +106,7 @@ public final class MainActivity extends Activity {
                         Map<String, String> headers = new HashMap<>();
                         headers.put("Cache-Control", "no-store");
                         headers.put("X-Content-Type-Options", "nosniff");
-                        return new WebResourceResponse(type, "UTF-8", 200, "OK", headers,
+                        return new WebResourceResponse(type, type.startsWith("font/") ? null : "UTF-8", 200, "OK", headers,
                             getAssets().open(url.getPath().substring("/assets/".length())));
                     } catch (IOException error) { return blockedResponse(404, "Not Found"); }
                 }
