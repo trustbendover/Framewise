@@ -81,11 +81,11 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         DiagLog.init(this, "");
         DiagLog.installCrashHandler();
-        getWindow().setStatusBarColor(0xff11130f);
-        getWindow().setNavigationBarColor(0xff11130f);
+        getWindow().setStatusBarColor(0xff05080a);
+        getWindow().setNavigationBarColor(0xff05080a);
         aiClient = new AiClient(this);
         webView = new WebView(this);
-        webView.setBackgroundColor(0xff11130f);
+        webView.setBackgroundColor(0xff05080a);
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -125,7 +125,7 @@ public final class MainActivity extends Activity {
             }
         });
         FrameLayout container = new FrameLayout(this);
-        container.setBackgroundColor(0xff11130f);
+        container.setBackgroundColor(0xff05080a);
         container.addView(webView, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         container.setOnApplyWindowInsetsListener((view, insets) -> {
