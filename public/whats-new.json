@@ -1,13 +1,22 @@
 {
-  "version": "0.5.3",
-  "title": "What's new in Framewise 0.5.3",
+  "version": "0.5.4",
+  "title": "What's new in Framewise 0.5.4",
   "notes": [
-    "Fixed: \"Could not reach GitHub\" errors when checking for updates. Framewise now uses a lighter update check that GitHub doesn't limit.",
-    "Tapping \"Check for updates\" many times in a row no longer causes errors. If GitHub is busy, Framewise waits and tries again later.",
-    "Clearer messages: the camera Wi-Fi tip only shows when your phone is actually on the camera's Wi-Fi.",
-    "Test reports are tidier: each update error is logged once, and closing the app no longer logs a USB disconnect."
+    "Test reports now go straight to the Framewise developer. Tap \"Send test report\" (or \"Yes, send\" after a crash) and you'll see \"Sent, thanks!\".",
+    "No internet? The report waits and is sent automatically the next time Framewise opens.",
+    "Prefer email or WhatsApp? Use \"Share another way\".",
+    "Your API key, passwords and photos are still never included. Reports are deleted after 90 days."
   ],
   "releases": [
+    {
+      "version": "0.5.4",
+      "notes": [
+        "Test reports now go straight to the Framewise developer. Tap \"Send test report\" (or \"Yes, send\" after a crash) and you'll see \"Sent, thanks!\".",
+        "No internet? The report waits and is sent automatically the next time Framewise opens.",
+        "Prefer email or WhatsApp? Use \"Share another way\".",
+        "Your API key, passwords and photos are still never included. Reports are deleted after 90 days."
+      ]
+    },
     {
       "version": "0.5.3",
       "notes": [

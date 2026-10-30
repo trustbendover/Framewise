@@ -26,3 +26,26 @@ test('Scrub limits depth and size', () => {
   assert.equal(scrub('x'.repeat(10000)).length, 4000);
   assert.equal(redactText(null), '');
 });
+
+test('Reports are trimmed to fit the 64 KB relay, keeping errors', async () => {
+  const { fitReport, RELAY_MAX_BYTES } = await import('../public/report.mjs');
+  const big = { format: 'framewise-test-report/1', errors: [{ m: 'boom' }], events: Array.from({ length: 150 }, (_, i) => ({ i, m: 'e'.repeat(200) })), shotHistory: Array.from({ length: 200 }, () => ({ tip: 'x'.repeat(400) })), jsLog: [] };
+  const fitted = fitReport(big);
+  assert.ok(new TextEncoder().encode(JSON.stringify(fitted)).length <= RELAY_MAX_BYTES);
+  assert.deepEqual(fitted.errors, big.errors);
+  assert.equal(fitted.trimmed, true);
+  const small = { format: 'framewise-test-report/1', errors: [] };
+  assert.deepEqual(fitReport(small), small);
+});
+
+test('Send test report posts to the relay; the share sheet is "Share another way"', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const js = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(html, /id="reportSendNow" class="primary">Yes, send</);
+  assert.match(html, /id="shareReportButton"[^>]*>Share another way/);
+  assert.match(html, /goes automatically to the Framewise developer/);
+  assert.doesNotMatch(html, /Nothing is sent unless you choose an app/);
+  assert.match(js, /window\.Android\.uploadReport\(/);
+  assert.match(js, /Sent, thanks!/);
+});

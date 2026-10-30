@@ -12,10 +12,11 @@ android {
         applicationId 'app.framewise'
         minSdk 29
         targetSdk 35
-        versionCode 12
-        versionName '0.5.3'
+        versionCode 13
+        versionName '0.5.4'
         // GitHub repository whose Releases feed the in-app updater.
         buildConfigField 'String', 'UPDATE_REPO', '"trustbendover/Framewise"'
+        buildConfigField 'String', 'REPORT_URL', '"https://framewise-reports.framewise.workers.dev/report"'
     }
     buildFeatures { buildConfig true }
     testOptions { unitTests.returnDefaultValues = true }

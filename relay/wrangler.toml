@@ -1,0 +1,17 @@
+name = "framewise-reports"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+account_id = "995a3641db10837d700a347c495d146b"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "FRAMEWISE_REPORTS"
+id = "e823f9fe7e33467e9767e41d58bcd8b1"
+
+[[ratelimits]]
+name = "BURST"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 3
+  period = 60

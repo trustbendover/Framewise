@@ -1,6 +1,6 @@
 import { recommend, formatShutter } from './engine.mjs';
 import { makeEntry, loadHistory, addEntry, clearHistory, summarizeHistory } from './history.mjs';
-import { buildReport, summaryText } from './report.mjs';
+import { buildReport, summaryText,fitReport} from './report.mjs';
 import { notesSince, titleFor, compareVersions } from './notes.mjs';
 // ---- Error capture for test reports (kept on the phone)
 const jsLog=[];
@@ -149,8 +149,11 @@ if($('cameraKind')){try{const k=localStorage.getItem('framewise.cameraKind');if(
 showKind();
 // ---- Test reports: built here, shared only through Android's share sheet
 function collectReport(){let nativePart={};try{nativePart=native?parseNative('nativeReport'):{};}catch{}let preferences={};try{preferences=JSON.parse(localStorage.getItem('framewise.preferences')||'{}');}catch{}const ui={cameraKind:state.cameraKind||($('cameraKind')&&$('cameraKind').value)||null,cameraModel:state.cameraModel||null,source:state.source,aiProvider:state.provider,aiConfigured:state.aiConfigured,lastStatus:$('activityStatus')?$('activityStatus').textContent:''};return buildReport({native:nativePart,history:loadHistory(localStorage),preferences,jsLog,ui});}
-function sendReport(){if(!native){toast('Reports are sent from the Android app.');return;}const report=collectReport();window.Android.shareReport(JSON.stringify(report,null,1),summaryText(report));}
+function shareReportAnotherWay(){if(!native){toast('Reports are sent from the Android app.');return;}const report=collectReport();window.Android.shareReport(JSON.stringify(report,null,1),summaryText(report));}
+function sendReport(){if(!native){toast('Reports are sent from the Android app.');return;}if(typeof window.Android.uploadReport!=='function'){shareReportAnotherWay();return;}const report=fitReport(collectReport());if(!report){toast('This report is too big to send automatically. Use “Share another way”.');return;}if($('sendReportButton'))$('sendReportButton').disabled=true;status('Sending the test report…');window.Android.uploadReport(JSON.stringify(report));}
 window.onReportError=message=>toast('Could not open the share sheet: '+message);
+window.onReportSent=(result,message)=>{if($('sendReportButton'))$('sendReportButton').disabled=false;const text=result==='sent'?'Sent, thanks!':result==='queued'?'No internet right now. The report will be sent the next time Framewise opens.':(message||'The report could not be sent. Try “Share another way”.');status(text);toast(text);if($('reportResult'))$('reportResult').textContent=text;};
+if($('shareReportButton'))$('shareReportButton').onclick=shareReportAnotherWay;
 if($('sendReportButton'))$('sendReportButton').onclick=sendReport;
 if($('previewReportButton'))$('previewReportButton').onclick=()=>{const pre=$('reportPreview');pre.textContent=JSON.stringify(collectReport(),null,1);pre.hidden=!pre.hidden;};
 if($('clearReportButton'))$('clearReportButton').onclick=()=>{try{window.Android.clearDiagnostics();}catch{}jsLog.length=0;toast('Error log cleared.');};

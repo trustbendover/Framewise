@@ -63,6 +63,7 @@ public final class MainActivity extends Activity {
     private CanonWifiClient canonWifi;
     /** Which connection the bridge reports: "wifi" (Sony), "usb" or "canon-wifi". */
     private volatile String activeCamera = "wifi";
+    private ReportUploader reportUploader;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService photoExecutor = Executors.newSingleThreadExecutor();
 
@@ -147,6 +148,8 @@ public final class MainActivity extends Activity {
         usbCamera = new UsbCameraClient(this);
         canonWifi = new CanonWifiClient(this);
         handleUsbIntent(getIntent());
+        reportUploader = new ReportUploader(this);
+        reportUploader.flushQueue();
         updates = new UpdateManager(this);
         UpdateManager.cameraWifi = () -> {
             String active = activeCamera;
@@ -260,6 +263,7 @@ public final class MainActivity extends Activity {
         if (usbCamera != null) { usbCamera.close(); usbCamera = null; }
         if (canonWifi != null) { canonWifi.close(); canonWifi = null; }
         if (updates != null) { updates.close(); updates = null; }
+        if (reportUploader != null) { reportUploader.close(); reportUploader = null; }
         mainHandler.removeCallbacksAndMessages(null);
         if (webView != null) {
             webView.removeJavascriptInterface("Android");
@@ -329,6 +333,12 @@ public final class MainActivity extends Activity {
 
         @JavascriptInterface public String nativeReport() {
             try { return DiagLog.nativeReport().toString(); } catch (JSONException e) { return "{}"; }
+        }
+
+        @JavascriptInterface public void uploadReport(String reportJson) {
+            if (reportUploader == null) return;
+            reportUploader.send(reportJson, (result, message) -> publishScript("if(typeof window.onReportSent==='function'){window.onReportSent("
+                + JSONObject.quote(result) + "," + JSONObject.quote(message) + ");}"));
         }
 
         @JavascriptInterface public void shareReport(String reportJson, String summary) {
