@@ -51,7 +51,16 @@ final class UpdateManager {
     private static final String API = "https://api.github.com/repos/" + BuildConfig.UPDATE_REPO + "/releases?per_page=30";
     private static final String PREFS = "framewise.updates";
     /** Automatic checks (launch and return to the app) at most every 20 minutes; GitHub allows 60 per hour. */
+    /** Release asset served through GitHub's download CDN: not counted against the 60/hour API limit. */
+    private static final String UPDATE_JSON = "https://github.com/" + BuildConfig.UPDATE_REPO + "/releases/latest/download/update.json";
     static final long AUTO_CHECK_INTERVAL_MS = 20L * 60 * 1000;
+    static final long MANUAL_DEBOUNCE_MS = 10_000L;
+    static final long DEFAULT_BACKOFF_MS = 60L * 60 * 1000;
+    static final String BUSY_MESSAGE = "GitHub is busy, Framewise will try again later.";
+    /** True while Framewise is joined to a camera's own Wi-Fi (DIRECT-…), set by MainActivity. */
+    static volatile java.util.function.BooleanSupplier cameraWifi = () -> false;
+    private static String lastLoggedError;
+    private static long lastManualCheck;
     private static final long MAX_APK_BYTES = 200L * 1024 * 1024;
     private static final Pattern VERSION = Pattern.compile("(\\d+)(?:\\.(\\d+))?(?:\\.(\\d+))?");
     private static final Pattern VERSION_CODE = Pattern.compile("versionCode\\s*[:=]\\s*(\\d+)", Pattern.CASE_INSENSITIVE);
@@ -70,6 +79,7 @@ final class UpdateManager {
         String tag, versionName, notes, pageUrl, apkUrl, apkName, shaUrl;
         /** Notes of every published release newer than the installed app, newest first. */
         JSONArray notesByVersion = new JSONArray();
+        String sha256;
         long versionCode, apkSize;
     }
 
@@ -88,7 +98,10 @@ final class UpdateManager {
             status.put("currentVersion", BuildConfig.VERSION_NAME);
             status.put("currentCode", BuildConfig.VERSION_CODE);
         } catch (JSONException ignored) { }
-        if ("error".equals(state)) DiagLog.error("updater", message);
+        if ("error".equals(state)) {
+            if (!String.valueOf(message).equals(lastLoggedError)) DiagLog.error("updater", message); // same error: log once
+            lastLoggedError = message;
+        } else if ("current".equals(state) || "available".equals(state)) lastLoggedError = null;
         lastStatus = status;
         if (listener != null) listener.onUpdateStatus(status);
     }
@@ -97,11 +110,13 @@ final class UpdateManager {
         return lastStatus == null ? "{\"state\":\"idle\",\"currentVersion\":\"" + BuildConfig.VERSION_NAME + "\"}" : lastStatus.toString();
     }
 
-    /** Silent launch check, at most every few hours; only reports when an update exists. */
+    /** Silent launch/resume check, at most every 20 minutes; only reports when an update exists. */
     void checkOnLaunch() {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (!shouldAutoCheck(System.currentTimeMillis(), prefs.getLong("lastCheck", 0), prefs.getBoolean("updatePending", false),
-                prefs.getLong("lastCheckCode", -1), BuildConfig.VERSION_CODE)) return;
+        boolean pendingNotShown;
+        synchronized (UpdateManager.class) { pendingNotShown = prefs.getBoolean("updatePending", false) && lastStatus == null; }
+        if (!shouldAutoCheck(System.currentTimeMillis(), prefs.getLong("lastCheck", 0), pendingNotShown,
+                prefs.getLong("lastCheckCode", -1), BuildConfig.VERSION_CODE, prefs.getLong("backoffUntil", 0))) return;
         check(false);
     }
 
@@ -111,16 +126,54 @@ final class UpdateManager {
      * the clock moved backwards, or the interval has passed.
      */
     static boolean shouldAutoCheck(long now, long lastCheck, boolean updatePending, long lastCheckCode, long currentCode) {
+        return shouldAutoCheck(now, lastCheck, updatePending, lastCheckCode, currentCode, 0);
+    }
+
+    /** 0.5.3: also wait while GitHub asked us to back off (rate limit), unless the clock jumped back. */
+    static boolean shouldAutoCheck(long now, long lastCheck, boolean updatePending, long lastCheckCode, long currentCode, long backoffUntil) {
+        if (backoffUntil > 0 && now < backoffUntil && backoffUntil - now <= 2 * DEFAULT_BACKOFF_MS) return false;
         if (lastCheck <= 0 || updatePending || lastCheckCode != currentCode || now < lastCheck) return true;
         return now - lastCheck >= AUTO_CHECK_INTERVAL_MS;
     }
 
+    /** Repeated taps on "Check for updates" within a few seconds are ignored. */
+    static boolean isRepeatTap(long now, long lastTap) { return lastTap > 0 && now >= lastTap && now - lastTap < MANUAL_DEBOUNCE_MS; }
+
+    /** When to try again after a rate limit: GitHub's reset time or Retry-After, kept between 1 minute and 2 hours. */
+    static long backoffUntil(long now, String resetEpochSeconds, String retryAfterSeconds) {
+        long until = -1;
+        try { if (retryAfterSeconds != null) until = now + Long.parseLong(retryAfterSeconds.trim()) * 1000; } catch (NumberFormatException ignored) { }
+        try { if (until < 0 && resetEpochSeconds != null) until = Long.parseLong(resetEpochSeconds.trim()) * 1000; } catch (NumberFormatException ignored) { }
+        if (until < 0) until = now + DEFAULT_BACKOFF_MS;
+        return Math.max(now + 60_000L, Math.min(until, now + 2 * DEFAULT_BACKOFF_MS));
+    }
+
+    /** Friendly message for a failed check; only blames camera Wi-Fi when the phone is on one. */
+    static String networkErrorMessage(IOException error, boolean onCameraWifi) {
+        if (error instanceof RateLimitException) return BUSY_MESSAGE;
+        if (onCameraWifi) return "Could not reach GitHub: the phone is on the camera's Wi-Fi, which has no internet. Check for updates on mobile data or home Wi-Fi.";
+        return "Could not reach GitHub (" + error.getMessage() + "). Check your internet connection and try again.";
+    }
+
+    static final class RateLimitException extends IOException {
+        final long until;
+        RateLimitException(long until) { super("GitHub rate limit"); this.until = until; }
+    }
+
     void check(boolean manual) {
+        long now = System.currentTimeMillis();
+        if (manual) synchronized (UpdateManager.class) {
+            if (isRepeatTap(now, lastManualCheck)) return;
+            lastManualCheck = now;
+        }
         if (!busy.compareAndSet(false, true)) return;
+        SharedPreferences store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        // Count the attempt (not only successes), so failed checks are not retried on every resume.
+        store.edit().putLong("lastCheck", now).putLong("lastCheckCode", BuildConfig.VERSION_CODE).apply();
         if (manual) publish("checking", "Checking GitHub for a newer Framewise…", null);
         try { executor.execute(() -> {
             try {
-                Release release = fetchLatest();
+                Release release = fetchLatest(store.getLong("backoffUntil", 0));
                 SharedPreferences.Editor prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
                 prefs.putLong("lastCheck", System.currentTimeMillis()).putLong("lastCheckCode", BuildConfig.VERSION_CODE);
                 boolean newer = isNewer(release);
@@ -130,7 +183,7 @@ final class UpdateManager {
                     if (manual) publish("current", "Framewise " + BuildConfig.VERSION_NAME + " is the latest version.", null);
                     return;
                 }
-                if (release.apkUrl == null || release.shaUrl == null) {
+                if (release.apkUrl == null || (release.shaUrl == null && release.sha256 == null)) {
                     if (manual) publish("error", "Release " + release.tag + " has no APK with a .sha256 checksum attached yet. Try again later.", null);
                     return;
                 }
@@ -143,7 +196,15 @@ final class UpdateManager {
                 extra.put("size", release.apkSize);
                 publish("available", "Framewise " + release.versionName + " is available.", extra);
             } catch (IOException error) {
-                if (manual) publish("error", "Could not reach GitHub (" + error.getMessage() + "). Camera Wi-Fi has no internet: check updates on mobile data or home Wi-Fi.", null);
+                if (error instanceof RateLimitException) store.edit().putLong("backoffUntil", ((RateLimitException) error).until).apply();
+                boolean onCamera = false;
+                try { onCamera = cameraWifi.getAsBoolean(); } catch (RuntimeException ignored) { }
+                String message = networkErrorMessage(error, onCamera);
+                if (manual) publish("error", message, null);
+                else synchronized (UpdateManager.class) {
+                    if (!message.equals(lastLoggedError)) DiagLog.error("updater", "automatic check: " + message);
+                    lastLoggedError = message;
+                }
             } catch (JSONException | RuntimeException error) {
                 if (manual) publish("error", "GitHub's release information could not be read.", null);
             } finally {
@@ -199,7 +260,14 @@ final class UpdateManager {
 
     void close() { executor.shutdownNow(); }
 
-    private Release fetchLatest() throws IOException, JSONException {
+    private Release fetchLatest(long backoff) throws IOException, JSONException {
+        try {
+            JSONObject manifest = new JSONObject(new String(get(UPDATE_JSON, 512 * 1024, "application/json"), StandardCharsets.UTF_8));
+            return parseUpdateJson(manifest, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME);
+        } catch (IOException | JSONException primary) {
+            DiagLog.event("updater", "update.json unavailable (" + primary.getMessage() + "), trying the GitHub API");
+        }
+        if (backoff > System.currentTimeMillis()) throw new RateLimitException(backoff);
         JSONArray list = new JSONArray(new String(get(API, 2 * 1024 * 1024, "application/vnd.github+json"), StandardCharsets.UTF_8));
         return pickNewest(list, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME);
     }
@@ -224,6 +292,42 @@ final class UpdateManager {
         for (Release r : newer) best.notesByVersion.put(new JSONObject().put("version", r.versionName).put("notes", r.notes == null ? "" : r.notes));
         return best;
     }
+
+    /**
+     * The update.json asset the release workflow attaches to every release: the newest version,
+     * its APK, SHA-256 and the notes of recent versions (only those newer than the installed one are kept).
+     */
+    static Release parseUpdateJson(JSONObject json, long installedCode, String installedName) throws JSONException {
+        Release r = new Release();
+        r.versionName = json.optString("versionName", "").replaceFirst("^[vV]", "");
+        if (r.versionName.isEmpty()) throw new JSONException("update.json has no versionName");
+        r.tag = json.optString("tag", "v" + r.versionName);
+        r.versionCode = json.optLong("versionCode", -1);
+        r.notes = json.optString("notes", "");
+        r.pageUrl = githubUrl(json.optString("pageUrl", null));
+        r.apkName = json.optString("apkName", null);
+        r.apkUrl = githubUrl(json.optString("apkUrl", null));
+        r.apkSize = json.optLong("apkSize", -1);
+        r.shaUrl = githubUrl(json.optString("sha256Url", null));
+        String sha = json.optString("sha256", "").trim();
+        if (sha.matches("[0-9a-fA-F]{64}")) r.sha256 = sha.toLowerCase(Locale.ROOT);
+        JSONArray releases = json.optJSONArray("releases");
+        java.util.List<JSONObject> newer = new java.util.ArrayList<>();
+        if (releases != null) for (int i = 0; i < releases.length(); i++) {
+            JSONObject item = releases.optJSONObject(i);
+            if (item == null) continue;
+            String version = item.optString("version", "").replaceFirst("^[vV]", "");
+            if (version.isEmpty()) continue;
+            long code = item.optLong("versionCode", -1);
+            boolean isNewer = code > 0 ? code > installedCode : compareVersions(version, installedName) > 0;
+            if (isNewer) newer.add(new JSONObject().put("version", version).put("notes", item.optString("notes", "")));
+        }
+        newer.sort((a, b) -> compareVersions(b.optString("version"), a.optString("version")));
+        for (JSONObject item : newer) r.notesByVersion.put(item);
+        return r;
+    }
+
+    private static String githubUrl(String url) { return url != null && url.startsWith("https://github.com/") ? url : null; }
 
     private static boolean newerThan(Release a, Release b) {
         if (a.versionCode > 0 && b.versionCode > 0 && a.versionCode != b.versionCode) return a.versionCode > b.versionCode;
@@ -291,10 +395,13 @@ final class UpdateManager {
 
     private File download(Release release) throws IOException, UpdateException {
         publish("downloading", "Downloading checksum…", null);
-        String shaText = new String(get(release.shaUrl, 4096, "application/octet-stream"), StandardCharsets.US_ASCII);
-        Matcher hex = HEX64.matcher(shaText);
-        if (!hex.find()) throw new UpdateException("The release checksum file is not a valid SHA-256 value. Update cancelled.");
-        String expected = hex.group(1).toLowerCase(Locale.ROOT);
+        String expected = release.sha256;
+        if (expected == null) {
+            String shaText = new String(get(release.shaUrl, 4096, "application/octet-stream"), StandardCharsets.US_ASCII);
+            Matcher hex = HEX64.matcher(shaText);
+            if (!hex.find()) throw new UpdateException("The release checksum file is not a valid SHA-256 value. Update cancelled.");
+            expected = hex.group(1).toLowerCase(Locale.ROOT);
+        }
 
         File dir = new File(context.getCacheDir(), "updates");
         if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("cache folder unavailable");
@@ -404,7 +511,11 @@ final class UpdateManager {
         if (accept.contains("github")) connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
         int code = connection.getResponseCode();
         if (code == 404) { connection.disconnect(); throw new IOException("no published release yet"); }
-        if (code == 403 || code == 429) { connection.disconnect(); throw new IOException("GitHub rate limit, try again in an hour"); }
+        if (code == 403 || code == 429) {
+            long until = backoffUntil(System.currentTimeMillis(), connection.getHeaderField("X-RateLimit-Reset"), connection.getHeaderField("Retry-After"));
+            connection.disconnect();
+            throw new RateLimitException(until);
+        }
         if (code < 200 || code >= 300) { connection.disconnect(); throw new IOException("HTTP " + code); }
         if (!"https".equals(connection.getURL().getProtocol())) { connection.disconnect(); throw new IOException("insecure redirect"); }
         return connection;

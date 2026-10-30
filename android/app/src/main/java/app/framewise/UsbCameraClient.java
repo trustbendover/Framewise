@@ -67,10 +67,13 @@ final class UsbCameraClient extends CameraFeed {
     }
 
     synchronized void disconnect() {
+        // Only log a real disconnect: closing the app (onDestroy) or switching cameras while USB was idle used
+        // to log "disconnect requested" before every start in test reports.
+        boolean wasActive = wanted || !"idle".equals(state);
         wanted = false;
         stopWorker();
         state = "idle"; step = "Disconnected from the USB camera."; error = null;
-        DiagLog.event("usb", "disconnect requested");
+        if (wasActive) DiagLog.event("usb", "disconnect requested");
     }
 
     void close() {

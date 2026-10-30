@@ -16,6 +16,9 @@ abstract class CameraFeed implements PtpCameraSession.Sink {
 
     CameraFeed(String kind) { this.kind = kind; }
 
+    /** Connecting or connected (not idle and not failed). */
+    synchronized boolean active() { return !"idle".equals(state) && !"error".equals(state); }
+
     synchronized JSONObject status(long sinceFrame) {
         JSONObject v = new JSONObject();
         try {

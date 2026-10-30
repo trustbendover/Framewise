@@ -2,7 +2,7 @@ name: Release APK
 
 # Push a tag like v0.3.1 (matching versionName 0.3.1 in android/app/build.gradle)
 # to build a release-signed APK and publish it, with its SHA-256, as a GitHub Release.
-# The in-app updater reads these releases.
+# The in-app updater reads update.json (attached to every release) and falls back to the releases API.
 on:
   push:
     tags: ['v*']
@@ -87,6 +87,8 @@ jobs:
           OUT="Framewise-${VERSION_NAME}-android.apk"
           cp "$APK" "dist/$OUT"
           (cd dist && sha256sum "$OUT" > "$OUT.sha256" && cat "$OUT.sha256")
+          REPO="$GITHUB_REPOSITORY" node scripts/build-update-json.mjs "dist/$OUT" dist/update.json
+          node -e "const u=require('./dist/update.json'); if(!/^[0-9a-f]{64}$/.test(u.sha256)||u.versionCode!==Number(process.env.VERSION_CODE)) process.exit(1)"
           rm -f "$RUNNER_TEMP/framewise-release.jks"
 
       - name: Publish GitHub Release

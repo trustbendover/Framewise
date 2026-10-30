@@ -148,6 +148,11 @@ public final class MainActivity extends Activity {
         canonWifi = new CanonWifiClient(this);
         handleUsbIntent(getIntent());
         updates = new UpdateManager(this);
+        UpdateManager.cameraWifi = () -> {
+            String active = activeCamera;
+            SonyCameraClient sony = camera; CanonWifiClient canon = canonWifi;
+            return ("wifi".equals(active) && sony != null && sony.active()) || ("canon-wifi".equals(active) && canon != null && canon.active());
+        };
         UpdateManager.setListener(status -> publishScript("if(typeof window.onUpdateStatus==='function'){window.onUpdateStatus("
             + JSONObject.quote(status.toString()) + ");}"));
         updates.checkOnLaunch();
@@ -250,6 +255,7 @@ public final class MainActivity extends Activity {
         photoExecutor.shutdownNow();
         if (aiClient != null) { aiClient.close(); aiClient = null; }
         UpdateManager.setListener(null);
+        UpdateManager.cameraWifi = () -> false;
         if (camera != null) { camera.close(); camera = null; }
         if (usbCamera != null) { usbCamera.close(); usbCamera = null; }
         if (canonWifi != null) { canonWifi.close(); canonWifi = null; }

@@ -132,6 +132,9 @@ final class SonyCameraClient {
 
     synchronized void disconnect() { disconnectLocked(true); }
 
+    /** Joined (or joining) the camera's own DIRECT- Wi-Fi. */
+    synchronized boolean active() { return !"idle".equals(state) && !"error".equals(state); }
+
     synchronized JSONObject status(long sinceFrame) {
         JSONObject value = new JSONObject();
         try {
